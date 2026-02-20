@@ -131,6 +131,7 @@ const SLOT_GROUP_CENTER_ANGLE: Record<FixedSlotGroup, number> = {
   low: 150,
   rig: 90
 };
+const DEFAULT_PAGE_TITLE = "EVE Fittings";
 
 function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -375,6 +376,18 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
 
   function isCollapsed(state: Record<string, boolean>, key: string): boolean {
     return state[key] !== false;
+  }
+
+  function parseSelectedIdFromUrl(): number | null {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    const value = new URL(window.location.href).searchParams.get("id");
+    if (!value || !/^\d+$/.test(value)) {
+      return null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   async function loadProfile() {
@@ -631,6 +644,13 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   }, []);
 
   useEffect(() => {
+    const fromUrl = parseSelectedIdFromUrl();
+    if (fromUrl !== null) {
+      setSelectedId(fromUrl);
+    }
+  }, []);
+
+  useEffect(() => {
     const handle = setTimeout(() => {
       void loadList(query);
     }, 250);
@@ -648,6 +668,23 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   }, [selectedId]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const url = new URL(window.location.href);
+    if (selectedId) {
+      url.searchParams.set("id", String(selectedId));
+    } else {
+      url.searchParams.delete("id");
+    }
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, "", nextUrl);
+    }
+  }, [selectedId]);
+
+  useEffect(() => {
     if (syncCooldownSeconds <= 0) {
       return;
     }
@@ -656,6 +693,13 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     }, 1000);
     return () => window.clearInterval(handle);
   }, [syncCooldownSeconds]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    document.title = detail?.fittingName ? `${detail.fittingName} | ${DEFAULT_PAGE_TITLE}` : DEFAULT_PAGE_TITLE;
+  }, [detail?.fittingName]);
 
   return (
     <div className="flex min-h-screen w-full items-start gap-4 p-4">

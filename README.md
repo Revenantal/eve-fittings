@@ -1,36 +1,89 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# EVE Fittings
 
-## Getting Started
+A Next.js app for syncing EVE Online fittings from ESI and storing them as private JSON files on disk.
 
-First, run the development server:
+## Prerequisites
+
+- Node.js 20+
+- npm 10+
+- An EVE Developer application (for OAuth client ID/secret)
+
+## 1. Install dependencies
+
+```bash
+npm install
+```
+
+## 2. Configure environment variables
+
+Copy `.env.example` to `.env.local` and fill in values:
+
+```bash
+cp .env.example .env.local
+```
+
+Required variables:
+
+- `NEXT_PUBLIC_APP_URL` (example: `http://localhost:3000`)
+- `EVE_CLIENT_ID`
+- `EVE_CLIENT_SECRET`
+- `EVE_CALLBACK_URL` (example: `http://localhost:3000/api/auth/callback`)
+- `TOKEN_ENCRYPTION_KEY` (must be 32+ characters)
+- `FITS_STORAGE_ROOT` (example: `./data`)
+
+Optional variables:
+
+- `LOG_LEVEL` (default `info`)
+- `SHIP_TYPE_CACHE_TTL_DAYS` (default `30`)
+- `ESI_USER_AGENT` (default `eve-fittings/0.1 (+https://localhost)`)
+- `SESSION_TTL_HOURS` (default `168`)
+- `SYNC_MIN_INTERVAL_SECONDS` (default `300`)
+
+## 3. Configure EVE OAuth callback
+
+In the EVE Developer portal, set your app redirect/callback URL to exactly:
+
+- `http://localhost:3000/api/auth/callback`
+
+This must match `EVE_CALLBACK_URL` in `.env.local`.
+
+## 4. Run locally
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `http://localhost:3000`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Then click **Connect EVE Account** to authorize and sync fittings.
 
-## Learn More
+## 5. Verify quality checks
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run lint
+npm run typecheck
+npm test
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Available scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `npm run dev` - start dev server
+- `npm run build` - production build
+- `npm run start` - start production server
+- `npm run lint` - run ESLint
+- `npm run typecheck` - run TypeScript checks
+- `npm test` - run test suite
+- `npm run test:watch` - run tests in watch mode
 
-## Deploy on Vercel
+## Data storage
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+By default fittings are written under `./data` (or `FITS_STORAGE_ROOT`):
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- One directory per character ID
+- One JSON file per fitting
+- `index.json` per character for listing/search
+- Cache directories for type-name resolution
+
+Keep this storage path private and not publicly served.

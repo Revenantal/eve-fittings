@@ -1,7 +1,11 @@
 # TODO
 
-- Better organization of the fittings on the left (and perhaps filtering).
-- Add a date specifying when the fitting was last backed up (file modified date).
-- Update the URL to respect linking to that specific fitting.
-- Add fitting description.
 - Add support for Vercel Blob storage or local file storage.
+- Test add a UI with a background
+- Add Skeleton and more informative loaders
+- Add homepage with explanation of the project and how to use it
+- Add a favicon
+- Add a logo
+- Add attributions for the APIs and libraries used
+- Add a link to the GitHub repository
+- Reference how to contact dev in the footer

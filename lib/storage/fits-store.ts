@@ -95,6 +95,11 @@ export async function readFitting(characterId: number, fittingId: number): Promi
   return JSON.parse(raw) as EsiFitting;
 }
 
+export async function readFittingLastModified(characterId: number, fittingId: number): Promise<string> {
+  const stats = await fs.stat(fittingPath(characterId, fittingId));
+  return stats.mtime.toISOString();
+}
+
 export async function fittingFileExists(characterId: number, fittingId: number): Promise<boolean> {
   try {
     await fs.access(fittingPath(characterId, fittingId));

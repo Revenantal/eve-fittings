@@ -5,7 +5,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createFitting, deleteFitting, getFittings } from "@/server/esi/client";
 import type { EsiFitting } from "@/server/esi/types";
-import { deleteStoredFitting, listStoredFittings, readFitting, tryReadIndex, writeFittings } from "@/lib/storage/fits-store";
+import {
+  deleteStoredFitting,
+  listStoredFittings,
+  readFitting,
+  readFittingLastModified,
+  tryReadIndex,
+  writeFittings
+} from "@/lib/storage/fits-store";
 import { resolveShipGroupingMetadata, resolveShipTypeName, resolveTypeName } from "@/lib/ship-types/cache";
 import { env } from "@/server/config/env";
 
@@ -39,23 +46,13 @@ function normalize(text: string): string {
   return text.toLowerCase().trim();
 }
 
-function fuzzyMatch(query: string, candidate: string): boolean {
+function directMatch(query: string, candidate: string): boolean {
   const q = normalize(query);
   const c = normalize(candidate);
   if (!q) {
     return true;
   }
-  if (c.includes(q)) {
-    return true;
-  }
-
-  let qi = 0;
-  for (let i = 0; i < c.length && qi < q.length; i += 1) {
-    if (c[i] === q[qi]) {
-      qi += 1;
-    }
-  }
-  return qi === q.length;
+  return c.includes(q);
 }
 
 export async function syncCharacterFittings(characterId: number, accessToken: string): Promise<{ count: number; syncedAt: string }> {
@@ -90,14 +87,13 @@ export async function listGroupedFittings(characterId: number, query: string): P
   >();
   const metadataByType = new Map<number, Awaited<ReturnType<typeof resolveShipGroupingMetadata>>>();
   for (const fitting of storedFittings) {
-    if (!fuzzyMatch(query, fitting.name)) {
-      continue;
-    }
-
     let metadata = metadataByType.get(fitting.shipTypeId);
     if (!metadata) {
       metadata = await resolveShipGroupingMetadata(fitting.shipTypeId);
       metadataByType.set(fitting.shipTypeId, metadata);
+    }
+    if (!directMatch(query, fitting.name) && !directMatch(query, metadata.shipTypeName)) {
+      continue;
     }
 
     if (!classMap.has(metadata.shipClassName)) {
@@ -368,12 +364,13 @@ async function writeJaniceCachedTotal(cacheKey: string, totalIsk: number, apprai
 export async function getFittingPriceEstimate(
   characterId: number,
   fittingId: number
-): Promise<{ totalIsk: number; appraisalUrl: string | null }> {
+): Promise<{ totalIsk: number; appraisalUrl: string | null; lastModified: string }> {
+  const lastModified = await readFittingLastModified(characterId, fittingId);
   const eft = await getFittingEft(characterId, fittingId);
   const cacheKey = toJaniceCacheKey(eft);
   const cachedEntry = await readJaniceCachedTotal(cacheKey);
   if (cachedEntry !== null) {
-    return cachedEntry;
+    return { ...cachedEntry, lastModified };
   }
 
   const response = await fetch("https://janice.e-351.com/api/rest/v2/appraisal?market=2&pricing=split", {
@@ -400,5 +397,5 @@ export async function getFittingPriceEstimate(
       : null;
 
   await writeJaniceCachedTotal(cacheKey, totalCandidate, appraisalUrl);
-  return { totalIsk: totalCandidate, appraisalUrl };
+  return { totalIsk: totalCandidate, appraisalUrl, lastModified };
 }

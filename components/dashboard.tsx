@@ -53,6 +53,7 @@ type FitEftResponse = {
 type FitPriceResponse = {
   totalIsk: number;
   appraisalUrl: string | null;
+  lastModified: string;
 };
 
 type ProfileResponse = {
@@ -132,10 +133,6 @@ const SLOT_GROUP_CENTER_ANGLE: Record<FixedSlotGroup, number> = {
   rig: 90
 };
 const DEFAULT_PAGE_TITLE = "EVE Fittings";
-
-function prettyJson(value: unknown): string {
-  return JSON.stringify(value, null, 2);
-}
 
 function formatSyncDate(value: string | null): string {
   if (!value) {
@@ -242,6 +239,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   const [eft, setEft] = useState<string>("");
   const [estimatedTotalIsk, setEstimatedTotalIsk] = useState<number | null>(null);
   const [estimatedAppraisalUrl, setEstimatedAppraisalUrl] = useState<string | null>(null);
+  const [estimatedLastModified, setEstimatedLastModified] = useState<string | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isEftLoading, setIsEftLoading] = useState(false);
   const [isPriceLoading, setIsPriceLoading] = useState(false);
@@ -412,6 +410,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       setDetail(null);
       setEstimatedTotalIsk(null);
       setEstimatedAppraisalUrl(null);
+      setEstimatedLastModified(null);
     }
   }
 
@@ -452,11 +451,13 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       if (!response.ok) {
         setEstimatedTotalIsk(null);
         setEstimatedAppraisalUrl(null);
+        setEstimatedLastModified(null);
         return;
       }
       const data = (await response.json()) as FitPriceResponse;
       setEstimatedTotalIsk(typeof data.totalIsk === "number" ? data.totalIsk : null);
       setEstimatedAppraisalUrl(typeof data.appraisalUrl === "string" ? data.appraisalUrl : null);
+      setEstimatedLastModified(typeof data.lastModified === "string" ? data.lastModified : null);
     } finally {
       setIsPriceLoading(false);
     }
@@ -618,6 +619,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       setEft("");
       setEstimatedTotalIsk(null);
       setEstimatedAppraisalUrl(null);
+      setEstimatedLastModified(null);
       setSelectedId(null);
       await loadList(query);
       addToast("Fitting permanently deleted", "success");
@@ -887,7 +889,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
           <>
             <section className="rounded bg-zinc-950/60 p-3 shadow-sm">
               <div className="flex flex-wrap items-center gap-4">
-                <div className="relative mx-auto h-[352px] w-[352px] shrink-0 rounded-full bg-zinc-800/40">
+                <div className="relative h-[352px] w-[352px] shrink-0 rounded-full bg-zinc-800/40">
                   <div className="absolute top-1/2 left-1/2 h-[258px] w-[258px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full bg-zinc-900/70">
                     <Image
                       src={shipImageUrl ?? `https://images.evetech.net/types/${detail.shipTypeId}/icon?size=256`}
@@ -950,7 +952,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                     );
                   })}
                 </div>
-                <div className="min-w-[260px] flex-1 self-center space-y-3 pl-6">
+                <div className="min-w-0 flex-1 self-center space-y-3 pl-0 text-left md:pl-6">
                   <div className="min-w-0">
                     <p className="truncate text-2xl font-semibold text-zinc-100">{detail.fittingName}</p>
                     <p className="mt-1 truncate text-base text-zinc-300">{detail.shipTypeName}</p>
@@ -979,6 +981,9 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                       ) : (
                         <span className="text-zinc-500">Cost unavailable</span>
                       )}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-400">
+                      {estimatedLastModified ? `Backed up: ${formatSyncDate(estimatedLastModified)}` : "Backed up: unknown"}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1014,8 +1019,13 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
             <section className="min-h-0 flex-1">
               <div className="grid h-full min-h-0 gap-3 lg:grid-cols-2">
                 <div className="min-h-0 rounded bg-zinc-950/70 p-3 shadow-sm">
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">JSON</h3>
-                  <pre className="dark-scrollbar h-[calc(100%-1.5rem)] overflow-auto text-xs text-zinc-200">{prettyJson(detail.fitting)}</pre>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Description</h3>
+                  <div
+                    className="dark-scrollbar h-[calc(100%-1.5rem)] overflow-y-auto pr-1 text-sm text-zinc-300 whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{
+                      __html: detail.fitting.description?.trim() ? detail.fitting.description : "No description."
+                    }}
+                  />
                 </div>
                 <div className="min-h-0 rounded bg-zinc-950/70 p-3 shadow-sm">
                   <div className="mb-2 flex items-center justify-between gap-2">

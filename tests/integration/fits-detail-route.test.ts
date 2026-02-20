@@ -198,7 +198,8 @@ describe("GET /api/fits/[fittingId]/price", () => {
     });
     vi.mocked(getFittingPriceEstimate).mockResolvedValue({
       totalIsk: 52670123,
-      appraisalUrl: "https://janice.e-351.com/a/abc123"
+      appraisalUrl: "https://janice.e-351.com/a/abc123",
+      lastModified: "2026-02-20T12:34:56.000Z"
     });
 
     const response = await GET_PRICE(new Request("http://localhost"), {
@@ -208,7 +209,8 @@ describe("GET /api/fits/[fittingId]/price", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       totalIsk: 52670123,
-      appraisalUrl: "https://janice.e-351.com/a/abc123"
+      appraisalUrl: "https://janice.e-351.com/a/abc123",
+      lastModified: "2026-02-20T12:34:56.000Z"
     });
     expect(getFittingPriceEstimate).toHaveBeenCalledWith(100, 10);
   });

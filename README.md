@@ -38,6 +38,7 @@ Optional variables:
 - `ESI_USER_AGENT` (default `eve-fittings/0.1 (+https://localhost)`)
 - `SESSION_TTL_HOURS` (default `168`)
 - `SYNC_MIN_INTERVAL_SECONDS` (default `300`)
+- `JANICE_API_KEY` (default public key; override with your own key if needed)
 
 ## 3. Configure EVE OAuth callback
 

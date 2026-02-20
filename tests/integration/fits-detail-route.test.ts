@@ -7,7 +7,8 @@ vi.mock("@/server/auth/esi-context", () => ({
 vi.mock("@/lib/fits/service", () => ({
   getFittingDetail: vi.fn(),
   deleteStoredFittingPermanently: vi.fn(),
-  getFittingEft: vi.fn()
+  getFittingEft: vi.fn(),
+  getFittingPriceEstimate: vi.fn()
 }));
 
 vi.mock("@/lib/storage/lock", () => ({
@@ -18,12 +19,13 @@ vi.mock("@/server/auth/csrf", () => ({
   validateCsrfHeader: vi.fn()
 }));
 
-import { deleteStoredFittingPermanently, getFittingDetail, getFittingEft } from "@/lib/fits/service";
+import { deleteStoredFittingPermanently, getFittingDetail, getFittingEft, getFittingPriceEstimate } from "@/lib/fits/service";
 import { withCharacterLock } from "@/lib/storage/lock";
 import { validateCsrfHeader } from "@/server/auth/csrf";
 import { requireAuthenticatedEsiContext } from "@/server/auth/esi-context";
 import { DELETE, GET } from "@/app/api/fits/[fittingId]/route";
 import { GET as GET_EFT } from "@/app/api/fits/[fittingId]/eft/route";
+import { GET as GET_PRICE } from "@/app/api/fits/[fittingId]/price/route";
 
 describe("GET /api/fits/[fittingId]", () => {
   beforeEach(() => {
@@ -180,5 +182,59 @@ describe("GET /api/fits/[fittingId]/eft", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ error: "Invalid fitting id" });
+  });
+});
+
+describe("GET /api/fits/[fittingId]/price", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("returns price estimate for valid requests", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
+      sessionId: "s1",
+      characterId: 100,
+      accessToken: "token"
+    });
+    vi.mocked(getFittingPriceEstimate).mockResolvedValue({
+      totalIsk: 52670123,
+      appraisalUrl: "https://janice.e-351.com/a/abc123"
+    });
+
+    const response = await GET_PRICE(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      totalIsk: 52670123,
+      appraisalUrl: "https://janice.e-351.com/a/abc123"
+    });
+    expect(getFittingPriceEstimate).toHaveBeenCalledWith(100, 10);
+  });
+
+  it("returns 400 for invalid fitting id", async () => {
+    const response = await GET_PRICE(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "bad" })
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "Invalid fitting id" });
+  });
+
+  it("returns 404 when price lookup fails", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
+      sessionId: "s1",
+      characterId: 100,
+      accessToken: "token"
+    });
+    vi.mocked(getFittingPriceEstimate).mockRejectedValue(new Error("downstream"));
+
+    const response = await GET_PRICE(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: "Unable to estimate fitting price" });
   });
 });

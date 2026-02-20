@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { IoClose } from "react-icons/io5";
+import { IoClose, IoOpenOutline } from "react-icons/io5";
 
 type EsiFitting = {
   description: string;
@@ -42,6 +42,11 @@ type FitDetailResponse = {
 
 type FitEftResponse = {
   eft: string;
+};
+
+type FitPriceResponse = {
+  totalIsk: number;
+  appraisalUrl: string | null;
 };
 
 type ProfileResponse = {
@@ -136,6 +141,27 @@ function formatSyncDate(value: string | null): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+function formatIskCompact(value: number): string {
+  const absValue = Math.abs(value);
+  if (absValue >= 1_000_000_000_000) {
+    return `${(value / 1_000_000_000_000).toFixed(2)}t ISK`;
+  }
+  if (absValue >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(2)}b ISK`;
+  }
+  if (absValue >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(2)}m ISK`;
+  }
+  if (absValue >= 1_000) {
+    return `${(value / 1_000).toFixed(2)}k ISK`;
+  }
+  return `${value.toFixed(2)} ISK`;
+}
+
+function formatIskFull(value: number): string {
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Math.round(value))} ISK`;
+}
+
 function Spinner({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <span
@@ -194,8 +220,11 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<FitDetailResponse | null>(null);
   const [eft, setEft] = useState<string>("");
+  const [estimatedTotalIsk, setEstimatedTotalIsk] = useState<number | null>(null);
+  const [estimatedAppraisalUrl, setEstimatedAppraisalUrl] = useState<string | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isEftLoading, setIsEftLoading] = useState(false);
+  const [isPriceLoading, setIsPriceLoading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeletingPermanently, setIsDeletingPermanently] = useState(false);
@@ -334,6 +363,8 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     }
     if (selectedId && !data.groups.some((g) => g.fittings.some((f) => f.fittingId === selectedId))) {
       setDetail(null);
+      setEstimatedTotalIsk(null);
+      setEstimatedAppraisalUrl(null);
     }
   }
 
@@ -364,6 +395,23 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       setEft(data.eft);
     } finally {
       setIsEftLoading(false);
+    }
+  }
+
+  async function loadPrice(fittingId: number) {
+    setIsPriceLoading(true);
+    try {
+      const response = await fetch(`/api/fits/${fittingId}/price`, { cache: "no-store" });
+      if (!response.ok) {
+        setEstimatedTotalIsk(null);
+        setEstimatedAppraisalUrl(null);
+        return;
+      }
+      const data = (await response.json()) as FitPriceResponse;
+      setEstimatedTotalIsk(typeof data.totalIsk === "number" ? data.totalIsk : null);
+      setEstimatedAppraisalUrl(typeof data.appraisalUrl === "string" ? data.appraisalUrl : null);
+    } finally {
+      setIsPriceLoading(false);
     }
   }
 
@@ -423,6 +471,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       if (selectedId) {
         await loadDetail(selectedId);
         await loadEft(selectedId);
+        await loadPrice(selectedId);
       }
       addToast(`Synced ${String(result.count ?? 0)} fittings.`, "success");
     } catch (error) {
@@ -446,6 +495,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       await loadList(query);
       await loadDetail(selectedId);
       await loadEft(selectedId);
+      await loadPrice(selectedId);
       if (result.stale) {
         setSyncStatusOverrides((prev) => ({ ...prev, [selectedId]: false }));
         addToast("Fitting removed from EVE, but refresh failed. Data may be stale.", "warning");
@@ -474,6 +524,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       await loadList(query);
       await loadDetail(selectedId);
       await loadEft(selectedId);
+      await loadPrice(selectedId);
       if (result.stale) {
         setSyncStatusOverrides((prev) => ({ ...prev, [selectedId]: true }));
         addToast("Fitting imported to EVE, but refresh failed. Data may be stale.", "warning");
@@ -518,6 +569,8 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       });
       setDetail(null);
       setEft("");
+      setEstimatedTotalIsk(null);
+      setEstimatedAppraisalUrl(null);
       setSelectedId(null);
       await loadList(query);
       addToast("Fitting permanently deleted", "success");
@@ -557,6 +610,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     }
     void loadDetail(selectedId);
     void loadEft(selectedId);
+    void loadPrice(selectedId);
   }, [selectedId]);
 
   useEffect(() => {
@@ -753,6 +807,32 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                   <div className="min-w-0">
                     <p className="truncate text-2xl font-semibold text-zinc-100">{detail.fittingName}</p>
                     <p className="mt-1 truncate text-base text-zinc-300">{detail.shipTypeName}</p>
+                    <p className="mt-1 text-sm text-zinc-300">
+                      {isPriceLoading ? (
+                        <span className="inline-flex items-center gap-2 text-zinc-400">
+                          <Spinner className="h-3.5 w-3.5 border-zinc-600 border-t-zinc-300" />
+                          Estimating total cost...
+                        </span>
+                      ) : estimatedTotalIsk !== null ? (
+                        <span className="inline-flex items-center gap-2">
+                          <span title={formatIskFull(estimatedTotalIsk)}>{formatIskCompact(estimatedTotalIsk)}</span>
+                          {estimatedAppraisalUrl ? (
+                            <a
+                              href={estimatedAppraisalUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Open Janice appraisal"
+                              aria-label="Open Janice appraisal"
+                              className="inline-flex h-4 w-4 items-center justify-center text-zinc-400 transition-colors hover:text-zinc-200"
+                            >
+                              <IoOpenOutline className="h-3.5 w-3.5" aria-hidden="true" />
+                            </a>
+                          ) : null}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-500">Cost unavailable</span>
+                      )}
+                    </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button

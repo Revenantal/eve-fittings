@@ -14,6 +14,7 @@ type Env = {
   userAgent: string;
   sessionTtlHours: number;
   syncMinIntervalSeconds: number;
+  janiceApiKey: string;
 };
 
 function required(name: string): string {
@@ -62,5 +63,6 @@ export const env: Env = {
   shipTypeCacheTtlDays: optionalNumber("SHIP_TYPE_CACHE_TTL_DAYS", 30),
   userAgent: optional("ESI_USER_AGENT", "eve-fittings/0.1 (+https://localhost)"),
   sessionTtlHours: optionalNumber("SESSION_TTL_HOURS", 168),
-  syncMinIntervalSeconds: optionalNumber("SYNC_MIN_INTERVAL_SECONDS", 300)
+  syncMinIntervalSeconds: optionalNumber("SYNC_MIN_INTERVAL_SECONDS", 300),
+  janiceApiKey: optional("JANICE_API_KEY", "G9KwKq3465588VPd6747t95Zh94q3W2E")
 };

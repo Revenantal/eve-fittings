@@ -1,9 +1,13 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { createFitting, deleteFitting, getFittings } from "@/server/esi/client";
 import type { EsiFitting } from "@/server/esi/types";
 import { deleteStoredFitting, listStoredFittings, readFitting, tryReadIndex, writeFittings } from "@/lib/storage/fits-store";
 import { resolveShipTypeName, resolveTypeName } from "@/lib/ship-types/cache";
+import { env } from "@/server/config/env";
 
 export type GroupedFit = {
   shipTypeId: number;
@@ -258,4 +262,104 @@ export async function getFittingEft(characterId: number, fittingId: number): Pro
   ];
 
   return `${lines.join("\n")}\n`;
+}
+
+type JaniceAppraisalResponse = {
+  code?: string;
+  immediatePrices?: {
+    totalSplitPrice?: number;
+  };
+  effectivePrices?: {
+    totalSplitPrice?: number;
+  };
+};
+
+type JaniceCacheEntry = {
+  totalIsk: number;
+  appraisalUrl?: string | null;
+  expiresAt: number;
+};
+
+const JANICE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const JANICE_CACHE_DIR = path.join(env.fitsStorageRoot, ".janice-cache");
+
+function toJaniceCacheKey(eft: string): string {
+  return createHash("sha256").update(`market=2|pricing=split|${eft}`).digest("hex");
+}
+
+function toJaniceCachePath(cacheKey: string): string {
+  return path.join(JANICE_CACHE_DIR, `${cacheKey}.json`);
+}
+
+async function readJaniceCachedTotal(cacheKey: string): Promise<{ totalIsk: number; appraisalUrl: string | null } | null> {
+  try {
+    const file = await readFile(toJaniceCachePath(cacheKey), "utf8");
+    const parsed = JSON.parse(file) as JaniceCacheEntry;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof parsed.totalIsk !== "number" ||
+      !Number.isFinite(parsed.totalIsk) ||
+      typeof parsed.expiresAt !== "number"
+    ) {
+      return null;
+    }
+    if (parsed.expiresAt <= Date.now()) {
+      return null;
+    }
+    return {
+      totalIsk: parsed.totalIsk,
+      appraisalUrl: typeof parsed.appraisalUrl === "string" ? parsed.appraisalUrl : null
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeJaniceCachedTotal(cacheKey: string, totalIsk: number, appraisalUrl: string | null): Promise<void> {
+  const entry: JaniceCacheEntry = {
+    totalIsk,
+    appraisalUrl,
+    expiresAt: Date.now() + JANICE_CACHE_TTL_MS
+  };
+  await mkdir(JANICE_CACHE_DIR, { recursive: true });
+  await writeFile(toJaniceCachePath(cacheKey), JSON.stringify(entry), "utf8");
+}
+
+export async function getFittingPriceEstimate(
+  characterId: number,
+  fittingId: number
+): Promise<{ totalIsk: number; appraisalUrl: string | null }> {
+  const eft = await getFittingEft(characterId, fittingId);
+  const cacheKey = toJaniceCacheKey(eft);
+  const cachedEntry = await readJaniceCachedTotal(cacheKey);
+  if (cachedEntry !== null) {
+    return cachedEntry;
+  }
+
+  const response = await fetch("https://janice.e-351.com/api/rest/v2/appraisal?market=2&pricing=split", {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain",
+      "X-ApiKey": env.janiceApiKey
+    },
+    body: eft
+  });
+  if (!response.ok) {
+    throw new Error(`Janice appraisal failed with status ${response.status}`);
+  }
+
+  const appraisal = (await response.json()) as JaniceAppraisalResponse;
+  const totalCandidate = appraisal.immediatePrices?.totalSplitPrice ?? appraisal.effectivePrices?.totalSplitPrice;
+  if (typeof totalCandidate !== "number" || !Number.isFinite(totalCandidate)) {
+    throw new Error("Janice appraisal returned an invalid total");
+  }
+
+  const appraisalUrl =
+    typeof appraisal.code === "string" && appraisal.code.trim()
+      ? `https://janice.e-351.com/a/${appraisal.code.trim()}`
+      : null;
+
+  await writeJaniceCachedTotal(cacheKey, totalCandidate, appraisalUrl);
+  return { totalIsk: totalCandidate, appraisalUrl };
 }

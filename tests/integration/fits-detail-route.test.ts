@@ -7,7 +7,7 @@ vi.mock("@/server/auth/esi-context", () => ({
 vi.mock("@/lib/fits/service", () => ({
   getFittingDetail: vi.fn(),
   deleteStoredFittingPermanently: vi.fn(),
-  getFittingPyfa: vi.fn()
+  getFittingEft: vi.fn()
 }));
 
 vi.mock("@/lib/storage/lock", () => ({
@@ -18,12 +18,12 @@ vi.mock("@/server/auth/csrf", () => ({
   validateCsrfHeader: vi.fn()
 }));
 
-import { deleteStoredFittingPermanently, getFittingDetail, getFittingPyfa } from "@/lib/fits/service";
+import { deleteStoredFittingPermanently, getFittingDetail, getFittingEft } from "@/lib/fits/service";
 import { withCharacterLock } from "@/lib/storage/lock";
 import { validateCsrfHeader } from "@/server/auth/csrf";
 import { requireAuthenticatedEsiContext } from "@/server/auth/esi-context";
 import { DELETE, GET } from "@/app/api/fits/[fittingId]/route";
-import { GET as GET_PYFA } from "@/app/api/fits/[fittingId]/pyfa/route";
+import { GET as GET_EFT } from "@/app/api/fits/[fittingId]/eft/route";
 
 describe("GET /api/fits/[fittingId]", () => {
   beforeEach(() => {
@@ -147,30 +147,30 @@ describe("DELETE /api/fits/[fittingId]", () => {
   });
 });
 
-describe("GET /api/fits/[fittingId]/pyfa", () => {
+describe("GET /api/fits/[fittingId]/eft", () => {
   beforeEach(() => {
     vi.resetAllMocks();
   });
 
-  it("returns pyfa output for valid requests", async () => {
+  it("returns eft output for valid requests", async () => {
     vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
       sessionId: "s1",
       characterId: 100,
       accessToken: "token"
     });
-    vi.mocked(getFittingPyfa).mockResolvedValue("[Pilgrim, Surprise]\nDamage Control II\n");
+    vi.mocked(getFittingEft).mockResolvedValue("[Pilgrim, Surprise]\nDamage Control II\n");
 
-    const response = await GET_PYFA(new Request("http://localhost"), {
+    const response = await GET_EFT(new Request("http://localhost"), {
       params: Promise.resolve({ fittingId: "10" })
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ pyfa: "[Pilgrim, Surprise]\nDamage Control II\n" });
-    expect(getFittingPyfa).toHaveBeenCalledWith(100, 10);
+    await expect(response.json()).resolves.toMatchObject({ eft: "[Pilgrim, Surprise]\nDamage Control II\n" });
+    expect(getFittingEft).toHaveBeenCalledWith(100, 10);
   });
 
   it("returns 400 for invalid fitting id", async () => {
-    const response = await GET_PYFA(new Request("http://localhost"), {
+    const response = await GET_EFT(new Request("http://localhost"), {
       params: Promise.resolve({ fittingId: "bad" })
     });
 

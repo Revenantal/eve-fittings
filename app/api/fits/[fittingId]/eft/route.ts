@@ -1,6 +1,6 @@
 import { jsonError, jsonOk } from "@/lib/http/response";
 import { getRequestId } from "@/lib/http/request-id";
-import { getFittingPyfa } from "@/lib/fits/service";
+import { getFittingEft } from "@/lib/fits/service";
 import { requireAuthenticatedEsiContext } from "@/server/auth/esi-context";
 import { logger } from "@/server/logging/logger";
 
@@ -14,17 +14,17 @@ export async function GET(
   const { fittingId: fittingIdRaw } = await context.params;
   const fittingId = Number(fittingIdRaw);
   if (!Number.isFinite(fittingId)) {
-    logger.warn("fit_pyfa_invalid_id", { requestId, fittingIdRaw });
+    logger.warn("fit_eft_invalid_id", { requestId, fittingIdRaw });
     return jsonError(400, "Invalid fitting id");
   }
 
   try {
     const { characterId } = await requireAuthenticatedEsiContext();
-    const pyfa = await getFittingPyfa(characterId, fittingId);
-    logger.info("fit_pyfa_loaded", { requestId, characterId, fittingId });
-    return jsonOk({ pyfa });
+    const eft = await getFittingEft(characterId, fittingId);
+    logger.info("fit_eft_loaded", { requestId, characterId, fittingId });
+    return jsonOk({ eft });
   } catch (error) {
-    logger.warn("fit_pyfa_failed", { requestId, fittingId, message: (error as Error).message });
+    logger.warn("fit_eft_failed", { requestId, fittingId, message: (error as Error).message });
     return jsonError(404, "Fitting not found", (error as Error).message);
   }
 }

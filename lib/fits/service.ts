@@ -173,7 +173,7 @@ function pushByFlag(bucket: SlotBucket, flag: number | string, text: string): vo
   }
 }
 
-export async function getFittingPyfa(characterId: number, fittingId: number): Promise<string> {
+export async function getFittingEft(characterId: number, fittingId: number): Promise<string> {
   const fitting = await readFitting(characterId, fittingId);
   const shipTypeName = await resolveShipTypeName(fitting.ship_type_id);
 

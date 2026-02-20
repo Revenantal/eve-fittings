@@ -43,8 +43,8 @@ Paths are suggestions and should remain server-authenticated.
   - Return stored fitting JSON.
   - Return action availability from latest ESI state (`canRemoveFromEve`, `canSyncToEve`).
   - Include fitting header metadata (`shipTypeId`, `shipTypeName`, `fittingName`) for UI display.
-- `GET /api/fits/{fitting_id}/pyfa`
-  - Return server-rendered PYFA text format for the stored fitting.
+- `GET /api/fits/{fitting_id}/eft`
+  - Return server-rendered EFT text format for the stored fitting.
   - Groups modules by slots and includes drones/cargo quantities.
 - `DELETE /api/fits/{fitting_id}`
   - Permanently delete a locally stored fitting JSON file.

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { IoClose, IoOpenOutline } from "react-icons/io5";
+import { IoChevronDown, IoChevronForward, IoClose, IoOpenOutline } from "react-icons/io5";
 
 type EsiFitting = {
   description: string;
@@ -19,12 +19,18 @@ type EsiFitting = {
 type FitListResponse = {
   updatedAt: string | null;
   groups: Array<{
-    shipTypeId: number;
-    shipTypeName: string;
-    fittings: Array<{
-      fittingId: number;
-      name: string;
-      isSyncedToEve: boolean;
+    shipClassName: string;
+    factions: Array<{
+      shipFactionName: string;
+      ships: Array<{
+        shipTypeId: number;
+        shipTypeName: string;
+        fittings: Array<{
+          fittingId: number;
+          name: string;
+          isSyncedToEve: boolean;
+        }>;
+      }>;
     }>;
   }>;
 };
@@ -162,6 +168,19 @@ function formatIskFull(value: number): string {
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Math.round(value))} ISK`;
 }
 
+function listAllFittings(groups: FitListResponse["groups"]) {
+  return groups.flatMap((shipClassGroup) =>
+    shipClassGroup.factions.flatMap((factionGroup) =>
+      factionGroup.ships.flatMap((shipGroup) =>
+        shipGroup.fittings.map((fit) => ({
+          ...fit,
+          shipTypeId: shipGroup.shipTypeId
+        }))
+      )
+    )
+  );
+}
+
 function Spinner({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <span
@@ -233,6 +252,9 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [syncStatusOverrides, setSyncStatusOverrides] = useState<SyncStatusOverrides>({});
   const [syncCooldownSeconds, setSyncCooldownSeconds] = useState(0);
+  const [collapsedClasses, setCollapsedClasses] = useState<Record<string, boolean>>({});
+  const [collapsedFactions, setCollapsedFactions] = useState<Record<string, boolean>>({});
+  const [collapsedShips, setCollapsedShips] = useState<Record<string, boolean>>({});
 
   const actionBusy = isImporting || isDeleting || isDeletingPermanently || isSyncingOne || isLoggingOut;
   const syncButtonDisabled = actionBusy || syncCooldownSeconds > 0;
@@ -340,9 +362,20 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   }
 
   const selectedAvailable = useMemo(
-    () => (selectedId ? list.groups.some((g) => g.fittings.some((f) => f.fittingId === selectedId)) : false),
+    () => (selectedId ? listAllFittings(list.groups).some((fit) => fit.fittingId === selectedId) : false),
     [list.groups, selectedId]
   );
+
+  function toggleCollapsed(
+    key: string,
+    setter: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
+  ) {
+    setter((prev) => ({ ...prev, [key]: prev[key] === false ? true : false }));
+  }
+
+  function isCollapsed(state: Record<string, boolean>, key: string): boolean {
+    return state[key] !== false;
+  }
 
   async function loadProfile() {
     const response = await fetch("/api/profile", { cache: "no-store" });
@@ -357,11 +390,12 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     const response = await fetch(`/api/fits?q=${encodeURIComponent(nextQuery)}`, { cache: "no-store" });
     const data = (await response.json()) as FitListResponse;
     setList(data);
+    const allFittings = listAllFittings(data.groups);
 
-    if (!selectedId && data.groups.length > 0 && data.groups[0].fittings.length > 0) {
-      setSelectedId(data.groups[0].fittings[0].fittingId);
+    if (!selectedId && allFittings.length > 0) {
+      setSelectedId(allFittings[0].fittingId);
     }
-    if (selectedId && !data.groups.some((g) => g.fittings.some((f) => f.fittingId === selectedId))) {
+    if (selectedId && !allFittings.some((fit) => fit.fittingId === selectedId)) {
       setDetail(null);
       setEstimatedTotalIsk(null);
       setEstimatedAppraisalUrl(null);
@@ -677,32 +711,101 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          <div className="dark-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-            {list.groups.map((group) => (
-              <div key={group.shipTypeId}>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{group.shipTypeName}</h3>
-                <ul className="mt-1 space-y-1">
-                  {group.fittings.map((fit) => (
-                    <li key={fit.fittingId}>
+          <div className="dark-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+            {list.groups.map((shipClassGroup) => (
+              <div key={shipClassGroup.shipClassName} className="space-y-1">
+                <button
+                  type="button"
+                  className="flex w-full cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left text-xs font-semibold text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-300"
+                  onClick={() => toggleCollapsed(shipClassGroup.shipClassName, setCollapsedClasses)}
+                >
+                  {isCollapsed(collapsedClasses, shipClassGroup.shipClassName) ? (
+                    <IoChevronForward className="h-3 w-3" aria-hidden="true" />
+                  ) : (
+                    <IoChevronDown className="h-3 w-3" aria-hidden="true" />
+                  )}
+                  <span>{shipClassGroup.shipClassName}</span>
+                </button>
+                {isCollapsed(collapsedClasses, shipClassGroup.shipClassName) ? null : (
+                <div className="ml-2 space-y-1 pl-2">
+                  {shipClassGroup.factions.map((factionGroup) => (
+                    <div key={`${shipClassGroup.shipClassName}-${factionGroup.shipFactionName}`} className="space-y-1">
+                      {(() => {
+                        const factionKey = `${shipClassGroup.shipClassName}::${factionGroup.shipFactionName}`;
+                        return (
+                          <>
                       <button
-                        className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm transition-colors ${
-                          selectedId === fit.fittingId ? "bg-zinc-700 text-white" : "text-zinc-300 hover:bg-zinc-800"
-                        }`}
-                        onClick={() => setSelectedId(fit.fittingId)}
+                        type="button"
+                        className="flex w-full cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left text-xs font-semibold text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-300"
+                        onClick={() => toggleCollapsed(factionKey, setCollapsedFactions)}
                       >
-                        <span className="truncate">{fit.name}</span>
-                        <span
-                          title={(syncStatusOverrides[fit.fittingId] ?? fit.isSyncedToEve) ? "Synced to EVE" : "Not synced to EVE"}
-                          className={`inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold ${
-                            (syncStatusOverrides[fit.fittingId] ?? fit.isSyncedToEve) ? "bg-emerald-900/70 text-emerald-300" : "bg-zinc-800 text-zinc-500"
-                          }`}
-                        >
-                          {(syncStatusOverrides[fit.fittingId] ?? fit.isSyncedToEve) ? "\u2713" : ""}
-                        </span>
+                        {isCollapsed(collapsedFactions, factionKey) ? (
+                          <IoChevronForward className="h-3 w-3" aria-hidden="true" />
+                        ) : (
+                          <IoChevronDown className="h-3 w-3" aria-hidden="true" />
+                        )}
+                        <span>{factionGroup.shipFactionName}</span>
                       </button>
-                    </li>
+                      {isCollapsed(collapsedFactions, factionKey) ? null : (
+                      <div className="ml-2 space-y-1 pl-2">
+                        {factionGroup.ships.map((shipGroup) => (
+                          <div key={shipGroup.shipTypeId} className="space-y-1">
+                            {(() => {
+                              const shipKey = `${factionKey}::${shipGroup.shipTypeId}`;
+                              return (
+                                <>
+                            <button
+                              type="button"
+                              className="flex w-full cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left text-xs font-semibold text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-300"
+                              onClick={() => toggleCollapsed(shipKey, setCollapsedShips)}
+                            >
+                              {isCollapsed(collapsedShips, shipKey) ? (
+                                <IoChevronForward className="h-3 w-3 shrink-0" aria-hidden="true" />
+                              ) : (
+                                <IoChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+                              )}
+                              <span className="truncate">{shipGroup.shipTypeName}</span>
+                            </button>
+                            {isCollapsed(collapsedShips, shipKey) ? null : (
+                            <ul className="ml-2 space-y-1 pl-2">
+                              {shipGroup.fittings.map((fit) => (
+                                <li key={fit.fittingId}>
+                                  <button
+                                    className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm transition-colors ${
+                                      selectedId === fit.fittingId ? "bg-zinc-700 text-white" : "text-zinc-300 hover:bg-zinc-800"
+                                    }`}
+                                    onClick={() => setSelectedId(fit.fittingId)}
+                                  >
+                                    <span className="truncate">{fit.name}</span>
+                                    <span
+                                      title={(syncStatusOverrides[fit.fittingId] ?? fit.isSyncedToEve) ? "Synced to EVE" : "Not synced to EVE"}
+                                      className={`inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold ${
+                                        (syncStatusOverrides[fit.fittingId] ?? fit.isSyncedToEve)
+                                          ? "bg-emerald-900/70 text-emerald-300"
+                                          : "bg-zinc-800 text-zinc-500"
+                                      }`}
+                                    >
+                                      {(syncStatusOverrides[fit.fittingId] ?? fit.isSyncedToEve) ? "\u2713" : ""}
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                            )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        ))}
+                      </div>
+                      )}
+                          </>
+                        );
+                      })()}
+                    </div>
                   ))}
-                </ul>
+                </div>
+                )}
               </div>
             ))}
           </div>

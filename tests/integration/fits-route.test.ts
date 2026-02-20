@@ -36,11 +36,21 @@ describe("GET /api/fits", () => {
       updatedAt: "2026-02-20T00:00:00.000Z",
       groups: [
         {
-          shipTypeId: 621,
-          shipTypeName: "Caracal",
-          fittings: [
-            { fittingId: 10, name: "PvE", isSyncedToEve: true },
-            { fittingId: 11, name: "Legacy", isSyncedToEve: false }
+          shipClassName: "Cruiser",
+          factions: [
+            {
+              shipFactionName: "Caldari State",
+              ships: [
+                {
+                  shipTypeId: 621,
+                  shipTypeName: "Caracal",
+                  fittings: [
+                    { fittingId: 10, name: "PvE", isSyncedToEve: true },
+                    { fittingId: 11, name: "Legacy", isSyncedToEve: false }
+                  ]
+                }
+              ]
+            }
           ]
         }
       ]
@@ -53,10 +63,20 @@ describe("GET /api/fits", () => {
       updatedAt: "2026-02-20T00:00:00.000Z",
       groups: [
         {
-          shipTypeId: 621,
-          fittings: [
-            { fittingId: 10, isSyncedToEve: true },
-            { fittingId: 11, isSyncedToEve: false }
+          shipClassName: "Cruiser",
+          factions: [
+            {
+              shipFactionName: "Caldari State",
+              ships: [
+                {
+                  shipTypeId: 621,
+                  fittings: [
+                    { fittingId: 10, isSyncedToEve: true },
+                    { fittingId: 11, isSyncedToEve: false }
+                  ]
+                }
+              ]
+            }
           ]
         }
       ]

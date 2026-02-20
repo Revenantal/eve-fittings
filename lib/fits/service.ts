@@ -6,39 +6,33 @@ import path from "node:path";
 import { createFitting, deleteFitting, getFittings } from "@/server/esi/client";
 import type { EsiFitting } from "@/server/esi/types";
 import { deleteStoredFitting, listStoredFittings, readFitting, tryReadIndex, writeFittings } from "@/lib/storage/fits-store";
-import { resolveShipTypeName, resolveTypeName } from "@/lib/ship-types/cache";
+import { resolveShipGroupingMetadata, resolveShipTypeName, resolveTypeName } from "@/lib/ship-types/cache";
 import { env } from "@/server/config/env";
 
 export type GroupedFit = {
-  shipTypeId: number;
-  shipTypeName: string;
-  fittings: Array<{
-    fittingId: number;
-    name: string;
-    isSyncedToEve: boolean;
-  }>;
+  shipClassName: string;
+  factions: GroupedFitFaction[];
 };
 
-function isNumericText(value: string): boolean {
-  return /^\d+$/.test(value.trim());
-}
+export type GroupedFitFaction = {
+  shipFactionName: string;
+  ships: GroupedFitShip[];
+};
+
+export type GroupedFitShip = {
+  shipTypeId: number;
+  shipTypeName: string;
+  fittings: GroupedFitEntry[];
+};
+
+export type GroupedFitEntry = {
+  fittingId: number;
+  name: string;
+  isSyncedToEve: boolean;
+};
 
 async function resolveTypeNameForUi(typeId: number): Promise<string> {
-  const cachedOrResolved = await resolveTypeName(typeId);
-  if (!isNumericText(cachedOrResolved)) {
-    return cachedOrResolved;
-  }
-
-  const response = await fetch(`https://ref-data.everef.net/types/${typeId}`);
-  if (response.ok) {
-    const body = (await response.json()) as { name?: { en?: string } };
-    const fromRefData = body.name?.en?.trim();
-    if (fromRefData) {
-      return fromRefData;
-    }
-  }
-
-  return cachedOrResolved;
+  return resolveTypeName(typeId);
 }
 
 function normalize(text: string): string {
@@ -81,33 +75,78 @@ export async function listGroupedFittings(characterId: number, query: string): P
     return { updatedAt: index?.updatedAt ?? null, groups: [] };
   }
 
-  const groupMap = new Map<number, GroupedFit>();
+  const classMap = new Map<
+    string,
+    {
+      shipClassName: string;
+      factionMap: Map<
+        string,
+        {
+          shipFactionName: string;
+          shipMap: Map<number, GroupedFitShip>;
+        }
+      >;
+    }
+  >();
+  const metadataByType = new Map<number, Awaited<ReturnType<typeof resolveShipGroupingMetadata>>>();
   for (const fitting of storedFittings) {
     if (!fuzzyMatch(query, fitting.name)) {
       continue;
     }
 
-    if (!groupMap.has(fitting.shipTypeId)) {
-      groupMap.set(fitting.shipTypeId, {
-        shipTypeId: fitting.shipTypeId,
-        shipTypeName: await resolveShipTypeName(fitting.shipTypeId),
+    let metadata = metadataByType.get(fitting.shipTypeId);
+    if (!metadata) {
+      metadata = await resolveShipGroupingMetadata(fitting.shipTypeId);
+      metadataByType.set(fitting.shipTypeId, metadata);
+    }
+
+    if (!classMap.has(metadata.shipClassName)) {
+      classMap.set(metadata.shipClassName, {
+        shipClassName: metadata.shipClassName,
+        factionMap: new Map()
+      });
+    }
+
+    const classGroup = classMap.get(metadata.shipClassName)!;
+    if (!classGroup.factionMap.has(metadata.shipFactionName)) {
+      classGroup.factionMap.set(metadata.shipFactionName, {
+        shipFactionName: metadata.shipFactionName,
+        shipMap: new Map()
+      });
+    }
+
+    const factionGroup = classGroup.factionMap.get(metadata.shipFactionName)!;
+    if (!factionGroup.shipMap.has(metadata.shipTypeId)) {
+      factionGroup.shipMap.set(metadata.shipTypeId, {
+        shipTypeId: metadata.shipTypeId,
+        shipTypeName: metadata.shipTypeName,
         fittings: []
       });
     }
 
-    groupMap.get(fitting.shipTypeId)?.fittings.push({
+    factionGroup.shipMap.get(metadata.shipTypeId)?.fittings.push({
       fittingId: fitting.fittingId,
       name: fitting.name,
       isSyncedToEve: syncedIds.has(fitting.fittingId)
     });
   }
 
-  const groups = Array.from(groupMap.values())
-    .map((group) => ({
-      ...group,
-      fittings: group.fittings.sort((a, b) => a.name.localeCompare(b.name))
+  const groups = Array.from(classMap.values())
+    .map((classGroup) => ({
+      shipClassName: classGroup.shipClassName,
+      factions: Array.from(classGroup.factionMap.values())
+        .map((factionGroup) => ({
+          shipFactionName: factionGroup.shipFactionName,
+          ships: Array.from(factionGroup.shipMap.values())
+            .map((shipGroup) => ({
+              ...shipGroup,
+              fittings: shipGroup.fittings.sort((a, b) => a.name.localeCompare(b.name))
+            }))
+            .sort((a, b) => a.shipTypeName.localeCompare(b.shipTypeName))
+        }))
+        .sort((a, b) => a.shipFactionName.localeCompare(b.shipFactionName))
     }))
-    .sort((a, b) => a.shipTypeName.localeCompare(b.shipTypeName));
+    .sort((a, b) => a.shipClassName.localeCompare(b.shipClassName));
 
   return {
     updatedAt: index?.updatedAt ?? null,
@@ -280,7 +319,7 @@ type JaniceCacheEntry = {
   expiresAt: number;
 };
 
-const JANICE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const JANICE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const JANICE_CACHE_DIR = path.join(env.fitsStorageRoot, ".janice-cache");
 
 function toJaniceCacheKey(eft: string): string {

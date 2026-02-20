@@ -11,7 +11,8 @@ export default defineConfig({
       EVE_CLIENT_SECRET: "test-secret",
       EVE_CALLBACK_URL: "http://localhost:3000/api/auth/callback",
       TOKEN_ENCRYPTION_KEY: "12345678901234567890123456789012",
-      FITS_STORAGE_ROOT: "./data-test"
+      FITS_STORAGE_ROOT: "./data-test",
+      JANICE_API_KEY: "test-janice-api-key"
     }
   },
   resolve: {

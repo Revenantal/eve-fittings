@@ -22,6 +22,7 @@ Create `.env.local` from `.env.example`.
 | `ESI_USER_AGENT` | `eve-fittings/0.1 (+https://localhost)` | Outbound User-Agent for ESI/SSO requests |
 | `SESSION_TTL_HOURS` | `168` | Idle session TTL in hours before session invalidation |
 | `SYNC_MIN_INTERVAL_SECONDS` | `300` | Minimum interval between manual `/api/fits/sync` requests per character |
+| `JANICE_API_KEY` | `replace-me` | Janice API key used for fitting price lookups |
 
 ## Notes
 - Never expose secrets via `NEXT_PUBLIC_*`.

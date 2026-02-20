@@ -64,5 +64,5 @@ export const env: Env = {
   userAgent: optional("ESI_USER_AGENT", "eve-fittings/0.1 (+https://localhost)"),
   sessionTtlHours: optionalNumber("SESSION_TTL_HOURS", 168),
   syncMinIntervalSeconds: optionalNumber("SYNC_MIN_INTERVAL_SECONDS", 300),
-  janiceApiKey: optional("JANICE_API_KEY", "G9KwKq3465588VPd6747t95Zh94q3W2E")
+  janiceApiKey: required("JANICE_API_KEY")
 };

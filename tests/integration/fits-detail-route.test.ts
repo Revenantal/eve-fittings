@@ -58,7 +58,9 @@ describe("GET /api/fits/[fittingId]", () => {
       canSyncToEve: false,
       shipTypeId: 123,
       shipTypeName: "Caracal",
-      fittingName: "Fit A"
+      fittingName: "Fit A",
+      itemTypeNames: {},
+      itemNamesByFlag: {}
     });
 
     const response = await GET(new Request("http://localhost"), {
@@ -72,7 +74,9 @@ describe("GET /api/fits/[fittingId]", () => {
       canSyncToEve: false,
       shipTypeId: 123,
       shipTypeName: "Caracal",
-      fittingName: "Fit A"
+      fittingName: "Fit A",
+      itemTypeNames: {},
+      itemNamesByFlag: {}
     });
     expect(getFittingDetail).toHaveBeenCalledWith(100, 10);
   });

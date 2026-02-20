@@ -15,6 +15,28 @@ export type GroupedFit = {
   }>;
 };
 
+function isNumericText(value: string): boolean {
+  return /^\d+$/.test(value.trim());
+}
+
+async function resolveTypeNameForUi(typeId: number): Promise<string> {
+  const cachedOrResolved = await resolveTypeName(typeId);
+  if (!isNumericText(cachedOrResolved)) {
+    return cachedOrResolved;
+  }
+
+  const response = await fetch(`https://ref-data.everef.net/types/${typeId}`);
+  if (response.ok) {
+    const body = (await response.json()) as { name?: { en?: string } };
+    const fromRefData = body.name?.en?.trim();
+    if (fromRefData) {
+      return fromRefData;
+    }
+  }
+
+  return cachedOrResolved;
+}
+
 function normalize(text: string): string {
   return text.toLowerCase().trim();
 }
@@ -96,18 +118,37 @@ export async function getFittingDetail(characterId: number, fittingId: number): 
   shipTypeId: number;
   shipTypeName: string;
   fittingName: string;
+  itemTypeNames: Record<string, string>;
+  itemNamesByFlag: Record<string, string>;
 }> {
   const fitting = await readFitting(characterId, fittingId);
   const index = await tryReadIndex(characterId);
   const existsInLatest = Boolean(index?.fittings.some((item) => item.fittingId === fittingId));
   const shipTypeName = await resolveShipTypeName(fitting.ship_type_id);
+  const typeIds = Array.from(new Set(fitting.items.map((item) => item.type_id)));
+  const resolvedNames = await Promise.all(
+    typeIds.map(async (typeId) => ({
+      typeId,
+      typeName: await resolveTypeNameForUi(typeId)
+    }))
+  );
+  const itemTypeNames = Object.fromEntries(resolvedNames.map((entry) => [String(entry.typeId), entry.typeName]));
+  const itemNamesByFlag: Record<string, string> = {};
+  for (const item of fitting.items) {
+    if (typeof item.flag !== "string") {
+      continue;
+    }
+    itemNamesByFlag[item.flag] = itemTypeNames[String(item.type_id)] ?? String(item.type_id);
+  }
   return {
     fitting,
     canRemoveFromEve: existsInLatest,
     canSyncToEve: !existsInLatest,
     shipTypeId: fitting.ship_type_id,
     shipTypeName,
-    fittingName: fitting.name
+    fittingName: fitting.name,
+    itemTypeNames,
+    itemNamesByFlag
   };
 }
 

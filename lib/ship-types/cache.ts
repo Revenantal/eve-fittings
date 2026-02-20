@@ -53,12 +53,47 @@ async function writeCacheRecord(record: ShipTypeCacheRecord): Promise<void> {
 }
 
 async function fetchShipTypeName(shipTypeId: number): Promise<string> {
-  const response = await fetch(`https://ref-data.everef.net/types/${shipTypeId}`);
+  const response = await fetch(`https://ref-data.everef.net/types/${shipTypeId}`, {
+    headers: {
+      "User-Agent": env.userAgent
+    }
+  });
   if (!response.ok) {
     return String(shipTypeId);
   }
   const body = (await response.json()) as { name?: { en?: string }; type_id?: number };
   return body.name?.en || String(body.type_id ?? shipTypeId);
+}
+
+async function fetchTypeName(typeId: number): Promise<string> {
+  const everefResponse = await fetch(`https://ref-data.everef.net/types/${typeId}`, {
+    headers: {
+      "User-Agent": env.userAgent
+    }
+  });
+  if (everefResponse.ok) {
+    const body = (await everefResponse.json()) as { name?: { en?: string }; type_id?: number };
+    const name = body.name?.en;
+    if (name && name.trim().length > 0) {
+      return name;
+    }
+  }
+
+  const esiResponse = await fetch(`https://esi.evetech.net/latest/universe/types/${typeId}/`, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": env.userAgent
+    }
+  });
+  if (esiResponse.ok) {
+    const body = (await esiResponse.json()) as { name?: string; type_id?: number };
+    const name = body.name;
+    if (name && name.trim().length > 0) {
+      return name;
+    }
+  }
+
+  return String(typeId);
 }
 
 async function readTypeCacheRecord(typeId: number): Promise<TypeNameCacheRecord | null> {
@@ -107,26 +142,24 @@ export async function resolveShipTypeName(shipTypeId: number): Promise<string> {
 export async function resolveTypeName(typeId: number): Promise<string> {
   const existing = await readTypeCacheRecord(typeId);
   const now = new Date();
+  const numericFallback = String(typeId);
 
-  if (existing && new Date(existing.expiresAt) > now) {
+  if (existing && existing.typeName !== numericFallback && new Date(existing.expiresAt) > now) {
     return existing.typeName;
   }
 
-  const response = await fetch(`https://ref-data.everef.net/types/${typeId}`);
-  let typeName = String(typeId);
-  if (response.ok) {
-    const body = (await response.json()) as { name?: { en?: string }; type_id?: number };
-    typeName = body.name?.en || String(body.type_id ?? typeId);
-  }
+  const typeName = await fetchTypeName(typeId);
 
   const expiresAt = new Date(now);
   expiresAt.setDate(expiresAt.getDate() + refDataCacheTtlDays());
-  await writeTypeCacheRecord({
-    typeId,
-    typeName,
-    cachedAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString()
-  });
+  if (typeName !== numericFallback) {
+    await writeTypeCacheRecord({
+      typeId,
+      typeName,
+      cachedAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString()
+    });
+  }
 
   return typeName;
 }

@@ -2,6 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { IoClose } from "react-icons/io5";
+
+type EsiFitting = {
+  description: string;
+  fitting_id: number;
+  items: Array<{
+    flag: number | string;
+    quantity: number;
+    type_id: number;
+  }>;
+  name: string;
+  ship_type_id: number;
+};
 
 type FitListResponse = {
   updatedAt: string | null;
@@ -17,12 +30,14 @@ type FitListResponse = {
 };
 
 type FitDetailResponse = {
-  fitting: unknown;
+  fitting: EsiFitting;
   canRemoveFromEve: boolean;
   canSyncToEve: boolean;
   shipTypeId: number;
   shipTypeName: string;
   fittingName: string;
+  itemTypeNames: Record<string, string>;
+  itemNamesByFlag: Record<string, string>;
 };
 
 type FitEftResponse = {
@@ -54,6 +69,57 @@ type Toast = {
 };
 
 type SyncStatusOverrides = Record<number, boolean>;
+type SlotGroup = "high" | "medium" | "low" | "rig" | "other";
+type FixedSlotGroup = Exclude<SlotGroup, "other">;
+type SlotItemAssignment = {
+  item: EsiFitting["items"][number];
+  sortIndex: number;
+};
+type SlotCell = {
+  slotGroup: FixedSlotGroup;
+  slotNumber: number;
+  angleDeg: number;
+  radius: number;
+  item: EsiFitting["items"][number] | null;
+};
+type SlotModel = {
+  cells: SlotCell[];
+  otherItems: EsiFitting["items"];
+  filledCounts: Record<FixedSlotGroup, number>;
+  totalVisibleItems: number;
+};
+
+function isNumericText(value: string): boolean {
+  return /^\d+$/.test(value.trim());
+}
+
+const FIXED_SLOT_COUNTS: Record<FixedSlotGroup, number> = {
+  high: 8,
+  medium: 8,
+  low: 8,
+  rig: 3
+};
+
+const SLOT_RADIUS: Record<FixedSlotGroup, number> = {
+  high: 154,
+  medium: 154,
+  low: 154,
+  rig: 106
+};
+
+const SLOT_ICON_SIZE: Record<FixedSlotGroup, number> = {
+  high: 30,
+  medium: 30,
+  low: 30,
+  rig: 28
+};
+
+const SLOT_GROUP_CENTER_ANGLE: Record<FixedSlotGroup, number> = {
+  high: -90,
+  medium: 30,
+  low: 150,
+  rig: 90
+};
 
 function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -79,6 +145,48 @@ function Spinner({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
+function toSlotGroup(flag: number | string): SlotGroup {
+  if (typeof flag !== "string") {
+    return "other";
+  }
+  if (flag.startsWith("HiSlot")) {
+    return "high";
+  }
+  if (flag.startsWith("MedSlot")) {
+    return "medium";
+  }
+  if (flag.startsWith("LoSlot")) {
+    return "low";
+  }
+  if (flag.startsWith("RigSlot")) {
+    return "rig";
+  }
+  return "other";
+}
+
+function toSlotSortIndex(flag: number | string): number {
+  if (typeof flag !== "string") {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  const slotMatch = flag.match(/(HiSlot|MedSlot|LoSlot|RigSlot)(\d+)$/);
+  if (!slotMatch) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  const parsed = Number(slotMatch[2]);
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function buildArcAngles(count: number, center: number, radius: number, iconSize: number): number[] {
+  if (count <= 1) {
+    return [center];
+  }
+  const iconGapPx = 5;
+  const stepDeg = (((iconSize + iconGapPx) / radius) * 180) / Math.PI;
+  const span = stepDeg * (count - 1);
+  const start = center - span / 2;
+  return Array.from({ length: count }, (_, index) => start + stepDeg * index);
+}
+
 export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   const [query, setQuery] = useState("");
   const [list, setList] = useState<FitListResponse>({ updatedAt: null, groups: [] });
@@ -99,11 +207,100 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
 
   const actionBusy = isImporting || isDeleting || isDeletingPermanently || isSyncingOne || isLoggingOut;
   const syncButtonDisabled = actionBusy || syncCooldownSeconds > 0;
-  const shipImageUrl = detail ? `https://images.evetech.net/types/${detail.shipTypeId}/render?size=128` : null;
+  const shipImageUrl = detail ? `https://images.evetech.net/types/${detail.shipTypeId}/render?size=512` : null;
   const selectedSyncOverride = selectedId ? syncStatusOverrides[selectedId] : undefined;
   const selectedIsSyncedToEve = detail ? selectedSyncOverride ?? detail.canRemoveFromEve : false;
   const effectiveCanRemoveFromEve = Boolean(detail && selectedIsSyncedToEve);
   const effectiveCanSyncToEve = Boolean(detail && !selectedIsSyncedToEve);
+  const itemTypeNames = detail?.itemTypeNames ?? {};
+  const itemNamesByFlag = detail?.itemNamesByFlag ?? {};
+  const slotModel = useMemo<SlotModel>(
+    () => {
+      if (!detail) {
+        return {
+          cells: [],
+          otherItems: [],
+          filledCounts: { high: 0, medium: 0, low: 0, rig: 0 },
+          totalVisibleItems: 0
+        };
+      }
+
+      const assignedByGroup: Record<FixedSlotGroup, Array<SlotItemAssignment | null>> = {
+        high: Array.from({ length: FIXED_SLOT_COUNTS.high }, () => null),
+        medium: Array.from({ length: FIXED_SLOT_COUNTS.medium }, () => null),
+        low: Array.from({ length: FIXED_SLOT_COUNTS.low }, () => null),
+        rig: Array.from({ length: FIXED_SLOT_COUNTS.rig }, () => null)
+      };
+      const overflowByGroup: Record<FixedSlotGroup, SlotItemAssignment[]> = {
+        high: [],
+        medium: [],
+        low: [],
+        rig: []
+      };
+      const otherItems: EsiFitting["items"] = [];
+
+      for (const item of detail.fitting.items) {
+        const group = toSlotGroup(item.flag);
+        if (group === "other") {
+          otherItems.push(item);
+          continue;
+        }
+        const slotIndex = toSlotSortIndex(item.flag);
+        const assignment: SlotItemAssignment = { item, sortIndex: slotIndex };
+        if (slotIndex >= 0 && slotIndex < FIXED_SLOT_COUNTS[group] && assignedByGroup[group][slotIndex] === null) {
+          assignedByGroup[group][slotIndex] = assignment;
+        } else {
+          overflowByGroup[group].push(assignment);
+        }
+      }
+
+      for (const group of ["high", "medium", "low", "rig"] as const) {
+        overflowByGroup[group].sort((left, right) => left.sortIndex - right.sortIndex);
+        for (const assignment of overflowByGroup[group]) {
+          const firstEmptyIndex = assignedByGroup[group].findIndex((entry) => entry === null);
+          if (firstEmptyIndex === -1) {
+            otherItems.push(assignment.item);
+            continue;
+          }
+          assignedByGroup[group][firstEmptyIndex] = assignment;
+        }
+      }
+
+      const cells: SlotCell[] = [];
+      for (const group of ["high", "medium", "low", "rig"] as const) {
+        const angles = buildArcAngles(
+          FIXED_SLOT_COUNTS[group],
+          SLOT_GROUP_CENTER_ANGLE[group],
+          SLOT_RADIUS[group],
+          SLOT_ICON_SIZE[group]
+        );
+        for (let slotNumber = 0; slotNumber < FIXED_SLOT_COUNTS[group]; slotNumber += 1) {
+          cells.push({
+            slotGroup: group,
+            slotNumber,
+            angleDeg: angles[slotNumber],
+            radius: SLOT_RADIUS[group],
+            item: assignedByGroup[group][slotNumber]?.item ?? null
+          });
+        }
+      }
+
+      const filledCounts = {
+        high: assignedByGroup.high.filter(Boolean).length,
+        medium: assignedByGroup.medium.filter(Boolean).length,
+        low: assignedByGroup.low.filter(Boolean).length,
+        rig: assignedByGroup.rig.filter(Boolean).length
+      };
+
+      return {
+        cells,
+        otherItems,
+        filledCounts,
+        totalVisibleItems: filledCounts.high + filledCounts.medium + filledCounts.low + filledCounts.rig + otherItems.length
+      };
+    },
+    [detail]
+  );
 
   function addToast(text: string, tone: Toast["tone"]) {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -487,49 +684,104 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
           </div>
         ) : (
           <>
-            <section className="flex flex-wrap items-start justify-between gap-3 rounded bg-zinc-950/60 p-3 shadow-sm">
-              <div className="flex items-center gap-3">
-                <Image
-                  src={shipImageUrl ?? `https://images.evetech.net/types/${detail.shipTypeId}/icon?size=128`}
-                  alt={`${detail.shipTypeName} ship`}
-                  className="h-[72px] w-[72px] rounded object-cover"
-                  width={72}
-                  height={72}
-                  onError={(event) => {
-                    event.currentTarget.src = `https://images.evetech.net/types/${detail.shipTypeId}/icon?size=128`;
-                  }}
-                />
-                <div className="min-w-0">
-                  <p className="truncate text-lg font-semibold text-zinc-100">{detail.shipTypeName}</p>
-                  <p className="truncate text-sm text-zinc-300">{detail.fittingName}</p>
+            <section className="rounded bg-zinc-950/60 p-3 shadow-sm">
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="relative mx-auto h-[352px] w-[352px] shrink-0 rounded-full bg-zinc-800/40">
+                  <div className="absolute top-1/2 left-1/2 h-[258px] w-[258px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full bg-zinc-900/70">
+                    <Image
+                      src={shipImageUrl ?? `https://images.evetech.net/types/${detail.shipTypeId}/icon?size=256`}
+                      alt={`${detail.shipTypeName} ship`}
+                      className="h-full w-full object-cover"
+                      width={258}
+                      height={258}
+                      onError={(event) => {
+                        event.currentTarget.src = `https://images.evetech.net/types/${detail.shipTypeId}/icon?size=256`;
+                      }}
+                    />
+                  </div>
+                  {slotModel.cells.map((cell) => {
+                    const iconSize = SLOT_ICON_SIZE[cell.slotGroup];
+                    const isRig = cell.slotGroup === "rig";
+                    const angleRadians = (cell.angleDeg * Math.PI) / 180;
+                    const x = isRig ? (cell.slotNumber - 1) * 31 : Math.cos(angleRadians) * cell.radius;
+                    const y = isRig ? 92 : Math.sin(angleRadians) * cell.radius;
+                    const rotation = isRig ? 0 : cell.angleDeg + 90;
+                    return (
+                      <div
+                        key={`${cell.slotGroup}-${cell.slotNumber}`}
+                        className="absolute flex items-center justify-center rounded-[2px] bg-zinc-950/92"
+                        style={{
+                          left: "50%",
+                          top: "50%",
+                          transform: `translate(-50%, -50%) translate(${x}px, ${y}px) rotate(${rotation}deg)`,
+                          width: `${iconSize}px`,
+                          height: `${iconSize}px`
+                        }}
+                        title={
+                          cell.item
+                            ? (() => {
+                                const byFlag =
+                                  typeof cell.item.flag === "string" ? itemNamesByFlag[cell.item.flag] : undefined;
+                                const byTypeId = itemTypeNames[String(cell.item.type_id)];
+                                const candidate = byFlag ?? byTypeId ?? "";
+                                return candidate && !isNumericText(candidate) ? candidate : "Unknown item";
+                              })()
+                            : `${cell.slotGroup} ${cell.slotNumber + 1} | empty`
+                        }
+                      >
+                        {cell.item ? (
+                          <Image
+                            src={`https://images.evetech.net/types/${cell.item.type_id}/icon?size=64`}
+                            alt={`Item ${cell.item.type_id}`}
+                            className="h-full w-full object-cover"
+                            width={64}
+                            height={64}
+                            style={isRig ? undefined : { transform: `rotate(${-rotation}deg)` }}
+                          />
+                        ) : (
+                          <IoClose
+                            className="h-3 w-3 text-zinc-500"
+                            aria-hidden="true"
+                            style={isRig ? undefined : { transform: `rotate(${-rotation}deg)` }}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-              <div className="flex flex-wrap justify-end gap-2">
-                <button
-                  className="inline-flex cursor-pointer items-center gap-2 rounded bg-red-950/70 px-3 py-1 text-sm text-red-200 transition-colors hover:bg-red-900/80 disabled:cursor-not-allowed disabled:opacity-40"
-                  onClick={deletePermanently}
-                  disabled={isDeletingPermanently || isDeleting || isSyncingOne || isImporting}
-                  title="Permanently delete this fitting"
-                >
-                  {isDeletingPermanently ? <Spinner className="h-3.5 w-3.5 border-red-400 border-t-red-100" /> : null}
-                  Delete permanently
-                </button>
-                <button
-                  className="inline-flex cursor-pointer items-center gap-2 rounded bg-red-900/50 px-3 py-1 text-sm text-red-200 transition-colors hover:bg-red-800/60 disabled:cursor-not-allowed disabled:opacity-40"
-                  onClick={removeFromEve}
-                  disabled={isDeleting || isDeletingPermanently || isSyncingOne || isImporting || !effectiveCanRemoveFromEve}
-                >
-                  {isDeleting ? <Spinner className="h-3.5 w-3.5 border-red-400 border-t-red-100" /> : null}
-                  Remove from EVE
-                </button>
-                <button
-                  className="inline-flex cursor-pointer items-center gap-2 rounded bg-emerald-900/50 px-3 py-1 text-sm text-emerald-200 transition-colors hover:bg-emerald-800/60 disabled:cursor-not-allowed disabled:opacity-40"
-                  onClick={syncToEve}
-                  disabled={isSyncingOne || isDeleting || isDeletingPermanently || isImporting || !effectiveCanSyncToEve}
-                >
-                  {isSyncingOne ? <Spinner className="h-3.5 w-3.5 border-emerald-400 border-t-emerald-100" /> : null}
-                  Sync to EVE
-                </button>
+                <div className="min-w-[260px] flex-1 self-center space-y-3 pl-6">
+                  <div className="min-w-0">
+                    <p className="truncate text-2xl font-semibold text-zinc-100">{detail.fittingName}</p>
+                    <p className="mt-1 truncate text-base text-zinc-300">{detail.shipTypeName}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="inline-flex cursor-pointer items-center gap-2 rounded bg-red-950/70 px-3 py-1 text-sm text-red-200 transition-colors hover:bg-red-900/80 disabled:cursor-not-allowed disabled:opacity-40"
+                      onClick={deletePermanently}
+                      disabled={isDeletingPermanently || isDeleting || isSyncingOne || isImporting}
+                      title="Permanently delete this fitting"
+                    >
+                      {isDeletingPermanently ? <Spinner className="h-3.5 w-3.5 border-red-400 border-t-red-100" /> : null}
+                      Delete permanently
+                    </button>
+                    <button
+                      className="inline-flex cursor-pointer items-center gap-2 rounded bg-red-900/50 px-3 py-1 text-sm text-red-200 transition-colors hover:bg-red-800/60 disabled:cursor-not-allowed disabled:opacity-40"
+                      onClick={removeFromEve}
+                      disabled={isDeleting || isDeletingPermanently || isSyncingOne || isImporting || !effectiveCanRemoveFromEve}
+                    >
+                      {isDeleting ? <Spinner className="h-3.5 w-3.5 border-red-400 border-t-red-100" /> : null}
+                      Remove from EVE
+                    </button>
+                    <button
+                      className="inline-flex cursor-pointer items-center gap-2 rounded bg-emerald-900/50 px-3 py-1 text-sm text-emerald-200 transition-colors hover:bg-emerald-800/60 disabled:cursor-not-allowed disabled:opacity-40"
+                      onClick={syncToEve}
+                      disabled={isSyncingOne || isDeleting || isDeletingPermanently || isImporting || !effectiveCanSyncToEve}
+                    >
+                      {isSyncingOne ? <Spinner className="h-3.5 w-3.5 border-emerald-400 border-t-emerald-100" /> : null}
+                      Sync to EVE
+                    </button>
+                  </div>
+                </div>
               </div>
             </section>
             <section className="min-h-0 flex-1">

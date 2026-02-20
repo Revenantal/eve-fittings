@@ -83,13 +83,15 @@ describe("GET /api/fits/[fittingId]", () => {
     expect(getFittingDetail).toHaveBeenCalledWith(100, 10);
   });
 
-  it("returns 404 when detail lookup fails", async () => {
+  it("returns 404 when detail file is missing", async () => {
     vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
       sessionId: "s1",
       characterId: 100,
       accessToken: "token"
     });
-    vi.mocked(getFittingDetail).mockRejectedValue(new Error("missing"));
+    const missing = new Error("missing") as NodeJS.ErrnoException;
+    missing.code = "ENOENT";
+    vi.mocked(getFittingDetail).mockRejectedValue(missing);
 
     const response = await GET(new Request("http://localhost"), {
       params: Promise.resolve({ fittingId: "10" })
@@ -97,6 +99,33 @@ describe("GET /api/fits/[fittingId]", () => {
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toMatchObject({ error: "Fitting not found" });
+  });
+
+  it("returns 401 when authentication fails", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockRejectedValue(new Error("Session not found"));
+
+    const response = await GET(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({ error: "Unauthorized" });
+  });
+
+  it("returns 500 for unexpected lookup failures", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
+      sessionId: "s1",
+      characterId: 100,
+      accessToken: "token"
+    });
+    vi.mocked(getFittingDetail).mockRejectedValue(new Error("EPERM: operation not permitted"));
+
+    const response = await GET(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({ error: "Unable to load fitting details" });
   });
 });
 

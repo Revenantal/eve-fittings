@@ -1,8 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { IoChevronDown, IoChevronForward, IoClose, IoOpenOutline } from "react-icons/io5";
+import {
+  IoChevronDown,
+  IoChevronForward,
+  IoCloudDownloadOutline,
+  IoCloudOutline,
+  IoCloudOfflineOutline,
+  IoCloudUploadOutline,
+  IoClose,
+  IoOpenOutline,
+  IoTrashOutline
+} from "react-icons/io5";
 
 type EsiFitting = {
   description: string;
@@ -101,6 +111,13 @@ type SlotModel = {
   totalVisibleItems: number;
 };
 
+type PersistedDashboardUiState = {
+  selectedId?: number;
+  collapsedClasses?: Record<string, boolean>;
+  collapsedFactions?: Record<string, boolean>;
+  collapsedShips?: Record<string, boolean>;
+};
+
 function isNumericText(value: string): boolean {
   return /^\d+$/.test(value.trim());
 }
@@ -133,6 +150,8 @@ const SLOT_GROUP_CENTER_ANGLE: Record<FixedSlotGroup, number> = {
   rig: 90
 };
 const DEFAULT_PAGE_TITLE = "EVE Fittings";
+const DASHBOARD_UI_STATE_STORAGE_KEY = "eve-fittings-dashboard-ui-v1";
+const DASHBOARD_SYNC_OVERRIDES_STORAGE_KEY = "eve-fittings-sync-overrides-v1";
 
 function formatSyncDate(value: string | null): string {
   if (!value) {
@@ -188,6 +207,39 @@ function Spinner({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
+function SkeletonBlock({ className }: { className?: string }) {
+  return <span aria-hidden="true" className={`skeleton block rounded ${className ?? ""}`} />;
+}
+
+function DetailSkeleton() {
+  return (
+    <>
+      <section className="rounded bg-zinc-950/60 p-3 shadow-sm">
+        <div className="flex flex-wrap items-center gap-4">
+          <SkeletonBlock className="h-[352px] w-[352px] rounded-full" />
+          <div className="min-w-0 flex-1 space-y-3 pl-0 text-left md:pl-6">
+            <SkeletonBlock className="h-8 w-2/3" />
+            <SkeletonBlock className="h-5 w-1/3" />
+            <SkeletonBlock className="h-4 w-1/4" />
+            <SkeletonBlock className="h-3 w-1/3" />
+            <div className="flex flex-wrap gap-2">
+              <SkeletonBlock className="h-8 w-36" />
+              <SkeletonBlock className="h-8 w-32" />
+              <SkeletonBlock className="h-8 w-28" />
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="min-h-0 flex-1">
+        <div className="grid h-full min-h-0 gap-3 lg:grid-cols-2">
+          <SkeletonBlock className="h-full min-h-[220px]" />
+          <SkeletonBlock className="h-full min-h-[220px]" />
+        </div>
+      </section>
+    </>
+  );
+}
+
 function toSlotGroup(flag: number | string): SlotGroup {
   if (typeof flag !== "string") {
     return "other";
@@ -231,11 +283,13 @@ function buildArcAngles(count: number, center: number, radius: number, iconSize:
 }
 
 export function Dashboard({ characterId, csrfToken }: DashboardProps) {
+  const fittingsScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [query, setQuery] = useState("");
   const [list, setList] = useState<FitListResponse>({ updatedAt: null, groups: [] });
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<FitDetailResponse | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [eft, setEft] = useState<string>("");
   const [estimatedTotalIsk, setEstimatedTotalIsk] = useState<number | null>(null);
   const [estimatedAppraisalUrl, setEstimatedAppraisalUrl] = useState<string | null>(null);
@@ -243,6 +297,10 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isEftLoading, setIsEftLoading] = useState(false);
   const [isPriceLoading, setIsPriceLoading] = useState(false);
+  const [isListLoading, setIsListLoading] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [showInitialSkeleton, setShowInitialSkeleton] = useState(false);
+  const [showDetailSkeleton, setShowDetailSkeleton] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeletingPermanently, setIsDeletingPermanently] = useState(false);
@@ -264,6 +322,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   const effectiveCanSyncToEve = Boolean(detail && !selectedIsSyncedToEve);
   const itemTypeNames = detail?.itemTypeNames ?? {};
   const itemNamesByFlag = detail?.itemNamesByFlag ?? {};
+  const isInitialListLoading = isListLoading && list.groups.length === 0;
   const slotModel = useMemo<SlotModel>(
     () => {
       if (!detail) {
@@ -365,6 +424,16 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     [list.groups, selectedId]
   );
 
+  useEffect(() => {
+    if (selectedId && !selectedAvailable) {
+      setDetail(null);
+      setDetailError(null);
+      setEstimatedTotalIsk(null);
+      setEstimatedAppraisalUrl(null);
+      setEstimatedLastModified(null);
+    }
+  }, [selectedId, selectedAvailable]);
+
   function toggleCollapsed(
     key: string,
     setter: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
@@ -374,6 +443,29 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
 
   function isCollapsed(state: Record<string, boolean>, key: string): boolean {
     return state[key] !== false;
+  }
+
+  function setAllCollapsed(nextCollapsed: boolean) {
+    const nextClasses: Record<string, boolean> = {};
+    const nextFactions: Record<string, boolean> = {};
+    const nextShips: Record<string, boolean> = {};
+
+    for (const shipClassGroup of list.groups) {
+      const classKey = shipClassGroup.shipClassName;
+      nextClasses[classKey] = nextCollapsed;
+      for (const factionGroup of shipClassGroup.factions) {
+        const factionKey = `${classKey}::${factionGroup.shipFactionName}`;
+        nextFactions[factionKey] = nextCollapsed;
+        for (const shipGroup of factionGroup.ships) {
+          const shipKey = `${factionKey}::${shipGroup.shipTypeId}`;
+          nextShips[shipKey] = nextCollapsed;
+        }
+      }
+    }
+
+    setCollapsedClasses(nextClasses);
+    setCollapsedFactions(nextFactions);
+    setCollapsedShips(nextShips);
   }
 
   function parseSelectedIdFromUrl(): number | null {
@@ -388,37 +480,58 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  function parseQueryFromUrl(): string {
+    if (typeof window === "undefined") {
+      return "";
+    }
+    return new URL(window.location.href).searchParams.get("q") ?? "";
+  }
+
   async function loadProfile() {
-    const response = await fetch("/api/profile", { cache: "no-store" });
-    if (!response.ok) {
-      return;
-    }
-    const data = (await response.json()) as ProfileResponse;
-    setProfile(data);
-  }
-
-  async function loadList(nextQuery: string) {
-    const response = await fetch(`/api/fits?q=${encodeURIComponent(nextQuery)}`, { cache: "no-store" });
-    const data = (await response.json()) as FitListResponse;
-    setList(data);
-    const allFittings = listAllFittings(data.groups);
-
-    if (!selectedId && allFittings.length > 0) {
-      setSelectedId(allFittings[0].fittingId);
-    }
-    if (selectedId && !allFittings.some((fit) => fit.fittingId === selectedId)) {
-      setDetail(null);
-      setEstimatedTotalIsk(null);
-      setEstimatedAppraisalUrl(null);
-      setEstimatedLastModified(null);
-    }
-  }
-
-  async function loadDetail(fittingId: number) {
-    setIsDetailLoading(true);
+    setIsProfileLoading(true);
     try {
-      const response = await fetch(`/api/fits/${fittingId}`, { cache: "no-store" });
+      const response = await fetch("/api/profile", { cache: "no-store" });
       if (!response.ok) {
+        return;
+      }
+      const data = (await response.json()) as ProfileResponse;
+      setProfile(data);
+    } finally {
+      setIsProfileLoading(false);
+    }
+  }
+
+  async function loadList(nextQuery: string, options?: { bypassCache?: boolean }) {
+    setIsListLoading(true);
+    try {
+      const response = await fetch(`/api/fits?q=${encodeURIComponent(nextQuery)}`, {
+        cache: options?.bypassCache ? "no-store" : "default"
+      });
+      const data = (await response.json()) as FitListResponse;
+      setList(data);
+      const allFittings = listAllFittings(data.groups);
+      const availableIds = new Set(allFittings.map((fit) => fit.fittingId));
+      setSelectedId((prev) => {
+        if (prev !== null && availableIds.has(prev)) {
+          return prev;
+        }
+        return allFittings.length > 0 ? allFittings[0].fittingId : null;
+      });
+    } finally {
+      setIsListLoading(false);
+    }
+  }
+
+  async function loadDetail(fittingId: number, options?: { bypassCache?: boolean }) {
+    setIsDetailLoading(true);
+    setDetailError(null);
+    try {
+      const response = await fetch(`/api/fits/${fittingId}`, {
+        cache: options?.bypassCache ? "no-store" : "default"
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string };
+        setDetailError(typeof data.error === "string" ? data.error : "Unable to load fitting details.");
         setDetail(null);
         return;
       }
@@ -429,10 +542,12 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     }
   }
 
-  async function loadEft(fittingId: number) {
+  async function loadEft(fittingId: number, options?: { bypassCache?: boolean }) {
     setIsEftLoading(true);
     try {
-      const response = await fetch(`/api/fits/${fittingId}/eft`, { cache: "no-store" });
+      const response = await fetch(`/api/fits/${fittingId}/eft`, {
+        cache: options?.bypassCache ? "no-store" : "default"
+      });
       if (!response.ok) {
         setEft("Unable to load EFT format.");
         return;
@@ -444,10 +559,12 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     }
   }
 
-  async function loadPrice(fittingId: number) {
+  async function loadPrice(fittingId: number, options?: { bypassCache?: boolean }) {
     setIsPriceLoading(true);
     try {
-      const response = await fetch(`/api/fits/${fittingId}/price`, { cache: "no-store" });
+      const response = await fetch(`/api/fits/${fittingId}/price`, {
+        cache: options?.bypassCache ? "no-store" : "default"
+      });
       if (!response.ok) {
         setEstimatedTotalIsk(null);
         setEstimatedAppraisalUrl(null);
@@ -515,11 +632,11 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       const result = await postJson("/api/fits/sync");
       setSyncStatusOverrides({});
       setSyncCooldownSeconds(0);
-      await loadList(query);
+      await loadList(query, { bypassCache: true });
       if (selectedId) {
-        await loadDetail(selectedId);
-        await loadEft(selectedId);
-        await loadPrice(selectedId);
+        await loadDetail(selectedId, { bypassCache: true });
+        await loadEft(selectedId, { bypassCache: true });
+        await loadPrice(selectedId, { bypassCache: true });
       }
       addToast(`Synced ${String(result.count ?? 0)} fittings.`, "success");
     } catch (error) {
@@ -540,19 +657,15 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     setIsDeleting(true);
     try {
       const result = await postJson(`/api/fits/${selectedId}/remove`, { confirm: true });
-      await loadList(query);
-      await loadDetail(selectedId);
-      await loadEft(selectedId);
-      await loadPrice(selectedId);
+      await loadList(query, { bypassCache: true });
+      await loadDetail(selectedId, { bypassCache: true });
+      await loadEft(selectedId, { bypassCache: true });
+      await loadPrice(selectedId, { bypassCache: true });
       if (result.stale) {
         setSyncStatusOverrides((prev) => ({ ...prev, [selectedId]: false }));
         addToast("Fitting removed from EVE, but refresh failed. Data may be stale.", "warning");
       } else {
-        setSyncStatusOverrides((prev) => {
-          const next = { ...prev };
-          delete next[selectedId];
-          return next;
-        });
+        setSyncStatusOverrides((prev) => ({ ...prev, [selectedId]: false }));
         addToast("Fitting removed from EVE", "success");
       }
     } catch (error) {
@@ -569,19 +682,15 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     setIsSyncingOne(true);
     try {
       const result = await postJson(`/api/fits/${selectedId}/sync`);
-      await loadList(query);
-      await loadDetail(selectedId);
-      await loadEft(selectedId);
-      await loadPrice(selectedId);
+      await loadList(query, { bypassCache: true });
+      await loadDetail(selectedId, { bypassCache: true });
+      await loadEft(selectedId, { bypassCache: true });
+      await loadPrice(selectedId, { bypassCache: true });
       if (result.stale) {
         setSyncStatusOverrides((prev) => ({ ...prev, [selectedId]: true }));
         addToast("Fitting imported to EVE, but refresh failed. Data may be stale.", "warning");
       } else {
-        setSyncStatusOverrides((prev) => {
-          const next = { ...prev };
-          delete next[selectedId];
-          return next;
-        });
+        setSyncStatusOverrides((prev) => ({ ...prev, [selectedId]: true }));
         addToast("Fitting imported to EVE", "success");
       }
     } catch (error) {
@@ -616,12 +725,13 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
         return next;
       });
       setDetail(null);
+      setDetailError(null);
       setEft("");
       setEstimatedTotalIsk(null);
       setEstimatedAppraisalUrl(null);
       setEstimatedLastModified(null);
       setSelectedId(null);
-      await loadList(query);
+      await loadList(query, { bypassCache: true });
       addToast("Fitting permanently deleted", "success");
     } catch (error) {
       addToast((error as Error).message, "error");
@@ -646,18 +756,85 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
     const fromUrl = parseSelectedIdFromUrl();
+    const queryFromUrl = parseQueryFromUrl();
+    if (queryFromUrl) {
+      setQuery(queryFromUrl);
+    }
     if (fromUrl !== null) {
       setSelectedId(fromUrl);
     }
+
+    try {
+      const raw = window.localStorage.getItem(DASHBOARD_UI_STATE_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw) as PersistedDashboardUiState;
+      if (parsed.collapsedClasses && typeof parsed.collapsedClasses === "object") {
+        setCollapsedClasses(parsed.collapsedClasses);
+      }
+      if (parsed.collapsedFactions && typeof parsed.collapsedFactions === "object") {
+        setCollapsedFactions(parsed.collapsedFactions);
+      }
+      if (parsed.collapsedShips && typeof parsed.collapsedShips === "object") {
+        setCollapsedShips(parsed.collapsedShips);
+      }
+      if (fromUrl === null && typeof parsed.selectedId === "number" && Number.isFinite(parsed.selectedId)) {
+        setSelectedId(parsed.selectedId);
+      }
+    } catch {
+      // Ignore invalid persisted UI state.
+    }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      const raw = window.sessionStorage.getItem(DASHBOARD_SYNC_OVERRIDES_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw) as SyncStatusOverrides;
+      if (parsed && typeof parsed === "object") {
+        setSyncStatusOverrides(parsed);
+      }
+    } catch {
+      // Ignore invalid persisted sync override state.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const nextState: PersistedDashboardUiState = {
+      selectedId: selectedId ?? undefined,
+      collapsedClasses,
+      collapsedFactions,
+      collapsedShips
+    };
+    window.localStorage.setItem(DASHBOARD_UI_STATE_STORAGE_KEY, JSON.stringify(nextState));
+  }, [selectedId, collapsedClasses, collapsedFactions, collapsedShips]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.sessionStorage.setItem(DASHBOARD_SYNC_OVERRIDES_STORAGE_KEY, JSON.stringify(syncStatusOverrides));
+  }, [syncStatusOverrides]);
 
   useEffect(() => {
     const handle = setTimeout(() => {
       void loadList(query);
     }, 250);
     return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   useEffect(() => {
@@ -679,12 +856,17 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     } else {
       url.searchParams.delete("id");
     }
+    if (query.trim()) {
+      url.searchParams.set("q", query);
+    } else {
+      url.searchParams.delete("q");
+    }
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (nextUrl !== currentUrl) {
       window.history.replaceState(window.history.state, "", nextUrl);
     }
-  }, [selectedId]);
+  }, [selectedId, query]);
 
   useEffect(() => {
     if (syncCooldownSeconds <= 0) {
@@ -702,6 +884,86 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     }
     document.title = detail?.fittingName ? `${detail.fittingName} | ${DEFAULT_PAGE_TITLE}` : DEFAULT_PAGE_TITLE;
   }, [detail?.fittingName]);
+
+  useEffect(() => {
+    if (!isInitialListLoading) {
+      setShowInitialSkeleton(false);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      setShowInitialSkeleton(true);
+    }, 120);
+    return () => window.clearTimeout(handle);
+  }, [isInitialListLoading]);
+
+  useEffect(() => {
+    if (!(isDetailLoading && !detail)) {
+      setShowDetailSkeleton(false);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      setShowDetailSkeleton(true);
+    }, 120);
+    return () => window.clearTimeout(handle);
+  }, [isDetailLoading, detail]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      return;
+    }
+
+    let classKeyToExpand: string | null = null;
+    let factionKeyToExpand: string | null = null;
+    let shipKeyToExpand: string | null = null;
+
+    for (const shipClassGroup of list.groups) {
+      const classKey = shipClassGroup.shipClassName;
+      for (const factionGroup of shipClassGroup.factions) {
+        const factionKey = `${classKey}::${factionGroup.shipFactionName}`;
+        for (const shipGroup of factionGroup.ships) {
+          if (shipGroup.fittings.some((fit) => fit.fittingId === selectedId)) {
+            classKeyToExpand = classKey;
+            factionKeyToExpand = factionKey;
+            shipKeyToExpand = `${factionKey}::${shipGroup.shipTypeId}`;
+            break;
+          }
+        }
+        if (shipKeyToExpand) {
+          break;
+        }
+      }
+      if (shipKeyToExpand) {
+        break;
+      }
+    }
+
+    if (!classKeyToExpand || !factionKeyToExpand || !shipKeyToExpand) {
+      return;
+    }
+
+    setCollapsedClasses((prev) => (prev[classKeyToExpand!] === false ? prev : { ...prev, [classKeyToExpand!]: false }));
+    setCollapsedFactions((prev) =>
+      prev[factionKeyToExpand!] === false ? prev : { ...prev, [factionKeyToExpand!]: false }
+    );
+    setCollapsedShips((prev) => (prev[shipKeyToExpand!] === false ? prev : { ...prev, [shipKeyToExpand!]: false }));
+  }, [selectedId, list.groups]);
+
+  useEffect(() => {
+    if (!selectedId || isInitialListLoading) {
+      return;
+    }
+
+    const handle = window.requestAnimationFrame(() => {
+      const container = fittingsScrollContainerRef.current;
+      const target = container?.querySelector<HTMLButtonElement>(`button[data-fit-id="${selectedId}"]`);
+      if (!target) {
+        return;
+      }
+      target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    });
+
+    return () => window.cancelAnimationFrame(handle);
+  }, [selectedId, isInitialListLoading, collapsedClasses, collapsedFactions, collapsedShips]);
 
   return (
     <div className="flex min-h-screen w-full items-start gap-4 p-4">
@@ -734,18 +996,33 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
             )}
           </button>
           <div className="flex items-center gap-3">
-            <Image
-              src={profile?.portraitUrl ?? `https://images.evetech.net/characters/${characterId}/portrait?size=128`}
-              alt="Character portrait"
-              className="h-[80px] w-[80px] shrink-0 rounded object-cover"
-              width={80}
-              height={80}
-            />
-            <div className="min-w-0 flex-1 space-y-1">
-              <p className="truncate text-sm font-semibold text-zinc-100">{profile?.characterName ?? `Character ${characterId}`}</p>
-              <p className="truncate text-xs text-zinc-300">{profile?.corporationName ?? "Corporation unknown"}</p>
-              <p className="truncate text-xs text-zinc-400">{profile?.allianceName ?? "No alliance"}</p>
-            </div>
+            {isProfileLoading && !profile && showInitialSkeleton ? (
+              <>
+                <SkeletonBlock className="h-[80px] w-[80px] shrink-0" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <SkeletonBlock className="h-4 w-2/3" />
+                  <SkeletonBlock className="h-3 w-full" />
+                  <SkeletonBlock className="h-3 w-1/2" />
+                </div>
+              </>
+            ) : (
+              <>
+                <Image
+                  src={profile?.portraitUrl ?? `https://images.evetech.net/characters/${characterId}/portrait?size=128`}
+                  alt="Character portrait"
+                  className="h-[80px] w-[80px] shrink-0 rounded object-cover"
+                  width={80}
+                  height={80}
+                />
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="truncate text-sm font-semibold text-zinc-100">
+                    {profile?.characterName ?? `Character ${characterId}`}
+                  </p>
+                  <p className="truncate text-xs text-zinc-300">{profile?.corporationName ?? "Corporation unknown"}</p>
+                  <p className="truncate text-xs text-zinc-400">{profile?.allianceName ?? "No alliance"}</p>
+                </div>
+              </>
+            )}
           </div>
         </section>
 
@@ -757,8 +1034,15 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          <div className="dark-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-            {list.groups.map((shipClassGroup) => (
+          <div ref={fittingsScrollContainerRef} className="dark-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+            {isInitialListLoading && showInitialSkeleton ? (
+              <div className="space-y-2">
+                {Array.from({ length: 14 }, (_, index) => (
+                  <SkeletonBlock key={index} className="h-7 w-full" />
+                ))}
+              </div>
+            ) : (
+              list.groups.map((shipClassGroup) => (
               <div key={shipClassGroup.shipClassName} className="space-y-1">
                 <button
                   type="button"
@@ -816,7 +1100,11 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                             <ul className="ml-2 space-y-1 pl-2">
                               {shipGroup.fittings.map((fit) => (
                                 <li key={fit.fittingId}>
+                                  {(() => {
+                                    const isSynced = syncStatusOverrides[fit.fittingId] ?? fit.isSyncedToEve;
+                                    return (
                                   <button
+                                    data-fit-id={fit.fittingId}
                                     className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm transition-colors ${
                                       selectedId === fit.fittingId ? "bg-zinc-700 text-white" : "text-zinc-300 hover:bg-zinc-800"
                                     }`}
@@ -824,16 +1112,22 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                                   >
                                     <span className="truncate">{fit.name}</span>
                                     <span
-                                      title={(syncStatusOverrides[fit.fittingId] ?? fit.isSyncedToEve) ? "Synced to EVE" : "Not synced to EVE"}
+                                      title={isSynced ? "Synced to EVE" : "Not synced to EVE"}
                                       className={`inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold ${
-                                        (syncStatusOverrides[fit.fittingId] ?? fit.isSyncedToEve)
+                                        isSynced
                                           ? "bg-emerald-900/70 text-emerald-300"
-                                          : "bg-zinc-800 text-zinc-500"
+                                          : "bg-red-950/70 text-red-300"
                                       }`}
                                     >
-                                      {(syncStatusOverrides[fit.fittingId] ?? fit.isSyncedToEve) ? "\u2713" : ""}
+                                      {isSynced ? (
+                                        <IoCloudOutline className="h-3 w-3" aria-hidden="true" />
+                                      ) : (
+                                        <IoCloudOfflineOutline className="h-3 w-3 opacity-70" aria-hidden="true" />
+                                      )}
                                     </span>
                                   </button>
+                                    );
+                                  })()}
                                 </li>
                               ))}
                             </ul>
@@ -853,7 +1147,26 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                 </div>
                 )}
               </div>
-            ))}
+              ))
+            )}
+          </div>
+          <div className="mt-3 flex items-center gap-2 border-t border-zinc-800 pt-2">
+            <button
+              type="button"
+              onClick={() => setAllCollapsed(true)}
+              disabled={isInitialListLoading}
+              className="inline-flex cursor-pointer items-center rounded bg-zinc-900/80 px-2 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Collapse all
+            </button>
+            <button
+              type="button"
+              onClick={() => setAllCollapsed(false)}
+              disabled={isInitialListLoading}
+              className="inline-flex cursor-pointer items-center rounded bg-zinc-900/80 px-2 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Expand all
+            </button>
           </div>
         </section>
 
@@ -865,6 +1178,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
             disabled={syncButtonDisabled}
           >
             {isImporting ? <Spinner className="h-4 w-4 border-cyan-200 border-t-white" /> : null}
+            {!isImporting ? <IoCloudDownloadOutline className="h-4 w-4" aria-hidden="true" /> : null}
             Sync fittings from EVE
           </button>
           {syncCooldownSeconds > 0 ? (
@@ -878,13 +1192,20 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       </aside>
 
       <main className="min-w-0 flex-1 self-stretch flex flex-col gap-3 rounded bg-zinc-900 p-4">
-        {!selectedId || !selectedAvailable ? (
+        {isInitialListLoading && showInitialSkeleton ? (
+          <DetailSkeleton />
+        ) : isInitialListLoading ? (
+          <div className="min-h-[220px]" />
+        ) : !selectedId || !selectedAvailable ? (
           <p className="text-sm text-zinc-400">Select a fitting from the list.</p>
-        ) : isDetailLoading || !detail ? (
-          <div className="flex items-center gap-2 text-sm text-zinc-300">
-            <Spinner className="h-4 w-4 border-zinc-500 border-t-zinc-200" />
-            Loading fitting details...
-          </div>
+        ) : isDetailLoading && !detail && showDetailSkeleton ? (
+          <DetailSkeleton />
+        ) : isDetailLoading && !detail ? (
+          <div className="min-h-[220px]" />
+        ) : detailError ? (
+          <div className="rounded bg-red-950/40 px-3 py-2 text-sm text-red-200">{detailError}</div>
+        ) : !detail ? (
+          <p className="text-sm text-zinc-400">Unable to load fitting details.</p>
         ) : (
           <>
             <section className="rounded bg-zinc-950/60 p-3 shadow-sm">
@@ -959,8 +1280,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                     <p className="mt-1 text-sm text-zinc-300">
                       {isPriceLoading ? (
                         <span className="inline-flex items-center gap-2 text-zinc-400">
-                          <Spinner className="h-3.5 w-3.5 border-zinc-600 border-t-zinc-300" />
-                          Estimating total cost...
+                          <SkeletonBlock className="h-4 w-28" />
                         </span>
                       ) : estimatedTotalIsk !== null ? (
                         <span className="inline-flex items-center gap-2">
@@ -991,10 +1311,11 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                       className="inline-flex cursor-pointer items-center gap-2 rounded bg-red-950/70 px-3 py-1 text-sm text-red-200 transition-colors hover:bg-red-900/80 disabled:cursor-not-allowed disabled:opacity-40"
                       onClick={deletePermanently}
                       disabled={isDeletingPermanently || isDeleting || isSyncingOne || isImporting}
-                      title="Permanently delete this fitting"
+                      title="Delete backup file"
                     >
                       {isDeletingPermanently ? <Spinner className="h-3.5 w-3.5 border-red-400 border-t-red-100" /> : null}
-                      Delete permanently
+                      {!isDeletingPermanently ? <IoTrashOutline className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+                      Delete Backup File
                     </button>
                     <button
                       className="inline-flex cursor-pointer items-center gap-2 rounded bg-red-900/50 px-3 py-1 text-sm text-red-200 transition-colors hover:bg-red-800/60 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1002,6 +1323,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                       disabled={isDeleting || isDeletingPermanently || isSyncingOne || isImporting || !effectiveCanRemoveFromEve}
                     >
                       {isDeleting ? <Spinner className="h-3.5 w-3.5 border-red-400 border-t-red-100" /> : null}
+                      {!isDeleting ? <IoCloudOfflineOutline className="h-3.5 w-3.5" aria-hidden="true" /> : null}
                       Remove from EVE
                     </button>
                     <button
@@ -1010,6 +1332,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                       disabled={isSyncingOne || isDeleting || isDeletingPermanently || isImporting || !effectiveCanSyncToEve}
                     >
                       {isSyncingOne ? <Spinner className="h-3.5 w-3.5 border-emerald-400 border-t-emerald-100" /> : null}
+                      {!isSyncingOne ? <IoCloudUploadOutline className="h-3.5 w-3.5" aria-hidden="true" /> : null}
                       Sync to EVE
                     </button>
                   </div>
@@ -1045,9 +1368,11 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                     </button>
                   </div>
                   {isEftLoading ? (
-                    <div className="flex items-center gap-2 text-xs text-zinc-300">
-                      <Spinner className="h-3.5 w-3.5 border-zinc-500 border-t-zinc-200" />
-                      Loading EFT export...
+                    <div className="space-y-2">
+                      <SkeletonBlock className="h-3 w-full" />
+                      <SkeletonBlock className="h-3 w-5/6" />
+                      <SkeletonBlock className="h-3 w-4/6" />
+                      <SkeletonBlock className="h-3 w-3/6" />
                     </div>
                   ) : (
                     <pre className="dark-scrollbar h-[calc(100%-1.5rem)] overflow-auto whitespace-pre-wrap text-xs text-zinc-200">{eft}</pre>

@@ -1,5 +1,6 @@
 import { jsonError, jsonOk } from "@/lib/http/response";
 import { getRequestId } from "@/lib/http/request-id";
+import { PRIVATE_NO_STORE_HEADERS } from "@/lib/http/cache";
 import { getFittingEft } from "@/lib/fits/service";
 import { requireAuthenticatedEsiContext } from "@/server/auth/esi-context";
 import { logger } from "@/server/logging/logger";
@@ -22,7 +23,7 @@ export async function GET(
     const { characterId } = await requireAuthenticatedEsiContext();
     const eft = await getFittingEft(characterId, fittingId);
     logger.info("fit_eft_loaded", { requestId, characterId, fittingId });
-    return jsonOk({ eft });
+    return jsonOk({ eft }, { headers: PRIVATE_NO_STORE_HEADERS });
   } catch (error) {
     logger.warn("fit_eft_failed", { requestId, fittingId, message: (error as Error).message });
     return jsonError(404, "Fitting not found", (error as Error).message);

@@ -1,5 +1,6 @@
 import { jsonError, jsonOk } from "@/lib/http/response";
 import { getRequestId } from "@/lib/http/request-id";
+import { PRIVATE_NO_STORE_HEADERS } from "@/lib/http/cache";
 import { listGroupedFittings } from "@/lib/fits/service";
 import { requireAuthenticatedEsiContext } from "@/server/auth/esi-context";
 import { logger } from "@/server/logging/logger";
@@ -14,7 +15,7 @@ export async function GET(request: Request): Promise<Response> {
     const query = url.searchParams.get("q") ?? "";
     const result = await listGroupedFittings(characterId, query);
     logger.info("fit_list_loaded", { requestId, characterId, queryLength: query.length, groups: result.groups.length });
-    return jsonOk(result);
+    return jsonOk(result, { headers: PRIVATE_NO_STORE_HEADERS });
   } catch (error) {
     logger.warn("fit_list_failed", { requestId, message: (error as Error).message });
     return jsonError(401, "Unauthorized", (error as Error).message);

@@ -1,8 +1,5 @@
 # TODO
-
 - Add support for Vercel Blob storage or local file storage.
-- Test add a UI with a background
-- Add Skeleton and more informative loaders
 - Add homepage with explanation of the project and how to use it
 - Add a favicon
 - Add a logo

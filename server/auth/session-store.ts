@@ -35,9 +35,25 @@ function sessionPath(sessionId: string): string {
 async function atomicWriteJson(filePath: string, payload: unknown): Promise<void> {
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
-  const tmp = path.join(dir, `${path.basename(filePath)}.${Date.now()}.tmp`);
-  await fs.writeFile(tmp, JSON.stringify(payload, null, 2), "utf8");
-  await fs.rename(tmp, filePath);
+  const tmp = path.join(dir, `${path.basename(filePath)}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`);
+  const serialized = JSON.stringify(payload, null, 2);
+  await fs.writeFile(tmp, serialized, "utf8");
+  try {
+    await fs.rename(tmp, filePath);
+    return;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") {
+      throw error;
+    }
+    // OneDrive/AV can briefly lock files; degrade to direct write for session continuity.
+    await fs.writeFile(filePath, serialized, "utf8");
+    try {
+      await fs.unlink(tmp);
+    } catch {
+      // Ignore temp cleanup failures.
+    }
+  }
 }
 
 export async function createSession(record: SessionRecord): Promise<void> {

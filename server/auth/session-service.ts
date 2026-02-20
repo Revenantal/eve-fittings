@@ -4,6 +4,7 @@ import { createSession, deleteSession, getSession } from "@/server/auth/session-
 import { decryptString, encryptString, randomId } from "@/server/security/crypto";
 import { clearCsrfCookie, clearSessionCookie, getSessionIdFromCookie, setSessionCookie } from "@/server/auth/cookies";
 import { refreshAccessToken } from "@/server/esi/client";
+import { logger } from "@/server/logging/logger";
 
 export async function createUserSession(characterId: number, refreshToken: string): Promise<string> {
   const sessionId = randomId();
@@ -41,7 +42,15 @@ export async function getAccessTokenForSession(sessionId: string): Promise<{ acc
   const tokens = await refreshAccessToken(refreshToken);
   const nextRefresh = tokens.refresh_token || refreshToken;
 
-  await rotateRefreshToken(session.sessionId, session.characterId, nextRefresh);
+  try {
+    await rotateRefreshToken(session.sessionId, session.characterId, nextRefresh);
+  } catch (error) {
+    logger.warn("session_rotate_failed", {
+      sessionId: session.sessionId,
+      characterId: session.characterId,
+      message: (error as Error).message
+    });
+  }
 
   return {
     accessToken: tokens.access_token,

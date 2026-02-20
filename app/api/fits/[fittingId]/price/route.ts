@@ -1,5 +1,6 @@
 import { jsonError, jsonOk } from "@/lib/http/response";
 import { getRequestId } from "@/lib/http/request-id";
+import { PRIVATE_NO_STORE_HEADERS } from "@/lib/http/cache";
 import { getFittingPriceEstimate } from "@/lib/fits/service";
 import { requireAuthenticatedEsiContext } from "@/server/auth/esi-context";
 import { logger } from "@/server/logging/logger";
@@ -22,7 +23,7 @@ export async function GET(
     const { characterId } = await requireAuthenticatedEsiContext();
     const estimate = await getFittingPriceEstimate(characterId, fittingId);
     logger.info("fit_price_loaded", { requestId, characterId, fittingId });
-    return jsonOk(estimate);
+    return jsonOk(estimate, { headers: PRIVATE_NO_STORE_HEADERS });
   } catch (error) {
     logger.warn("fit_price_failed", { requestId, fittingId, message: (error as Error).message });
     return jsonError(404, "Unable to estimate fitting price", (error as Error).message);

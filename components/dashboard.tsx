@@ -235,7 +235,7 @@ function DetailSkeleton() {
       <section className="rounded bg-zinc-950/60 p-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-center gap-4 max-[900px]:flex-col max-[900px]:items-center">
           <SkeletonBlock className="h-[352px] w-[352px] rounded-full" />
-          <div className="min-w-0 flex-1 space-y-3 pl-0 text-center md:pl-6">
+          <div className="min-w-0 flex-1 space-y-3 pl-0 text-center md:pl-6 md:text-left">
             <SkeletonBlock className="h-8 w-2/3" />
             <SkeletonBlock className="h-5 w-1/3" />
             <SkeletonBlock className="h-4 w-1/4" />
@@ -1383,7 +1383,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                     );
                   })}
                 </div>
-                <div className="min-w-0 flex-1 self-center space-y-3 pl-0 text-center md:pl-6">
+                <div className="min-w-0 flex-1 self-center space-y-3 pl-0 text-center md:pl-6 md:text-left">
                   <div className="min-w-0">
                     <p className="truncate text-2xl font-semibold text-zinc-100">{detail.fittingName}</p>
                     <p className="mt-1 truncate text-base text-zinc-300">{detail.shipTypeName}</p>

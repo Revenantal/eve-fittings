@@ -14,7 +14,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "EVE Fittings",
-  description: "Export and manage EVE fittings with private on-disk storage."
+  description: "Export and manage EVE fittings with private on-disk storage.",
+  icons: {
+    icon: "/icon.svg"
+  }
 };
 
 export default function RootLayout({

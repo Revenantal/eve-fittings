@@ -2,7 +2,9 @@ import "server-only";
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { head } from "@vercel/blob";
 
+import { deletePrivateBlob, readPrivateBlobJson, writePrivateBlobJson } from "@/lib/storage/blob-json";
 import { env } from "@/server/config/env";
 import type { EsiFitting } from "@/server/esi/types";
 
@@ -38,6 +40,18 @@ function indexPath(characterId: number): string {
   return path.join(characterDir(characterId), "index.json");
 }
 
+function blobCharacterPrefix(characterId: number): string {
+  return `${sanitizeSegment(env.fitsBlobPrefix)}/${sanitizeSegment(String(characterId))}`;
+}
+
+function fittingBlobPath(characterId: number, fittingId: number): string {
+  return `${blobCharacterPrefix(characterId)}/${sanitizeSegment(String(fittingId))}.json`;
+}
+
+function indexBlobPath(characterId: number): string {
+  return `${blobCharacterPrefix(characterId)}/index.json`;
+}
+
 async function atomicWriteJson(filePath: string, payload: unknown): Promise<void> {
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
@@ -47,6 +61,9 @@ async function atomicWriteJson(filePath: string, payload: unknown): Promise<void
 }
 
 export async function ensureStorageRoot(): Promise<void> {
+  if (env.fitsStorageBackend !== "local") {
+    return;
+  }
   await fs.mkdir(env.fitsStorageRoot, { recursive: true });
 }
 
@@ -54,8 +71,15 @@ export async function writeFittings(characterId: number, fittings: EsiFitting[])
   const records: FitIndexRecord[] = [];
 
   for (const fitting of fittings) {
-    const pathToFit = fittingPath(characterId, fitting.fitting_id);
-    await atomicWriteJson(pathToFit, fitting);
+    const pathToFit =
+      env.fitsStorageBackend === "blob"
+        ? fittingBlobPath(characterId, fitting.fitting_id)
+        : fittingPath(characterId, fitting.fitting_id);
+    if (env.fitsStorageBackend === "blob") {
+      await writePrivateBlobJson(pathToFit, fitting);
+    } else {
+      await atomicWriteJson(pathToFit, fitting);
+    }
     records.push({
       fittingId: fitting.fitting_id,
       name: fitting.name,
@@ -70,11 +94,24 @@ export async function writeFittings(characterId: number, fittings: EsiFitting[])
     fittings: records.sort((a, b) => a.name.localeCompare(b.name))
   };
 
-  await atomicWriteJson(indexPath(characterId), index);
+  if (env.fitsStorageBackend === "blob") {
+    await writePrivateBlobJson(indexBlobPath(characterId), index);
+  } else {
+    await atomicWriteJson(indexPath(characterId), index);
+  }
   return index;
 }
 
 export async function readIndex(characterId: number): Promise<FitIndex> {
+  if (env.fitsStorageBackend === "blob") {
+    const parsed = await readPrivateBlobJson<FitIndex>(indexBlobPath(characterId));
+    if (!parsed) {
+      const error = new Error("Index not found") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      throw error;
+    }
+    return parsed;
+  }
   const raw = await fs.readFile(indexPath(characterId), "utf8");
   return JSON.parse(raw) as FitIndex;
 }
@@ -91,16 +128,35 @@ export async function tryReadIndex(characterId: number): Promise<FitIndex | null
 }
 
 export async function readFitting(characterId: number, fittingId: number): Promise<EsiFitting> {
+  if (env.fitsStorageBackend === "blob") {
+    const parsed = await readPrivateBlobJson<EsiFitting>(fittingBlobPath(characterId, fittingId));
+    if (!parsed) {
+      const error = new Error("Fitting not found") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      throw error;
+    }
+    return parsed;
+  }
   const raw = await fs.readFile(fittingPath(characterId, fittingId), "utf8");
   return JSON.parse(raw) as EsiFitting;
 }
 
 export async function readFittingLastModified(characterId: number, fittingId: number): Promise<string> {
+  if (env.fitsStorageBackend === "blob") {
+    const metadata = await head(fittingBlobPath(characterId, fittingId), {
+      token: env.blobReadWriteToken
+    });
+    return metadata.uploadedAt.toISOString();
+  }
   const stats = await fs.stat(fittingPath(characterId, fittingId));
   return stats.mtime.toISOString();
 }
 
 export async function fittingFileExists(characterId: number, fittingId: number): Promise<boolean> {
+  if (env.fitsStorageBackend === "blob") {
+    const parsed = await readPrivateBlobJson<EsiFitting>(fittingBlobPath(characterId, fittingId));
+    return Boolean(parsed);
+  }
   try {
     await fs.access(fittingPath(characterId, fittingId));
     return true;
@@ -112,6 +168,19 @@ export async function fittingFileExists(characterId: number, fittingId: number):
 export async function listStoredFittings(
   characterId: number
 ): Promise<Array<{ fittingId: number; name: string; shipTypeId: number }>> {
+  const index = await tryReadIndex(characterId);
+  if (index) {
+    return index.fittings.map((fit) => ({
+      fittingId: fit.fittingId,
+      name: fit.name,
+      shipTypeId: fit.shipTypeId
+    }));
+  }
+
+  if (env.fitsStorageBackend === "blob") {
+    return [];
+  }
+
   try {
     const entries = await fs.readdir(characterDir(characterId), { withFileTypes: true });
     const summaries: Array<{ fittingId: number; name: string; shipTypeId: number }> = [];
@@ -149,13 +218,18 @@ export async function listStoredFittings(
 }
 
 export async function deleteStoredFitting(characterId: number, fittingId: number): Promise<boolean> {
-  let removed = false;
-  try {
-    await fs.unlink(fittingPath(characterId, fittingId));
-    removed = true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error;
+  const removed = await fittingFileExists(characterId, fittingId);
+  if (env.fitsStorageBackend === "blob") {
+    if (removed) {
+      await deletePrivateBlob(fittingBlobPath(characterId, fittingId));
+    }
+  } else {
+    try {
+      await fs.unlink(fittingPath(characterId, fittingId));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
     }
   }
 
@@ -173,6 +247,10 @@ export async function deleteStoredFitting(characterId: number, fittingId: number
     ...index,
     fittings: nextFittings
   };
-  await atomicWriteJson(indexPath(characterId), nextIndex);
+  if (env.fitsStorageBackend === "blob") {
+    await writePrivateBlobJson(indexBlobPath(characterId), nextIndex);
+  } else {
+    await atomicWriteJson(indexPath(characterId), nextIndex);
+  }
   return true;
 }

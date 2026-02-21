@@ -6,13 +6,45 @@ import { clearCsrfCookie, clearSessionCookie, getSessionIdFromCookie, setSession
 import { refreshAccessToken } from "@/server/esi/client";
 import { logger } from "@/server/logging/logger";
 
-export async function createUserSession(characterId: number, refreshToken: string): Promise<string> {
+const ACCESS_TOKEN_REFRESH_SKEW_MS = 60 * 1000;
+
+function toExpiresAt(nowMs: number, expiresInSeconds: number): string {
+  const safeTtlMs = Math.max(0, Math.floor(expiresInSeconds * 1000));
+  return new Date(nowMs + safeTtlMs).toISOString();
+}
+
+function canReuseAccessToken(
+  session: Awaited<ReturnType<typeof getSession>>,
+  nowMs: number
+): session is NonNullable<Awaited<ReturnType<typeof getSession>>> & {
+  encryptedAccessToken: string;
+  accessTokenExpiresAt: string;
+} {
+  if (!session?.encryptedAccessToken || !session.accessTokenExpiresAt) {
+    return false;
+  }
+  const expiryMs = Date.parse(session.accessTokenExpiresAt);
+  if (!Number.isFinite(expiryMs)) {
+    return false;
+  }
+  return expiryMs > nowMs + ACCESS_TOKEN_REFRESH_SKEW_MS;
+}
+
+export async function createUserSession(
+  characterId: number,
+  accessToken: string,
+  accessTokenExpiresInSeconds: number,
+  refreshToken: string
+): Promise<string> {
   const sessionId = randomId();
   const now = new Date().toISOString();
+  const nowMs = Date.now();
   await createSession({
     sessionId,
     characterId,
     encryptedRefreshToken: encryptString(refreshToken),
+    encryptedAccessToken: encryptString(accessToken),
+    accessTokenExpiresAt: toExpiresAt(nowMs, accessTokenExpiresInSeconds),
     createdAt: now,
     updatedAt: now
   });
@@ -20,14 +52,23 @@ export async function createUserSession(characterId: number, refreshToken: strin
   return sessionId;
 }
 
-export async function rotateRefreshToken(sessionId: string, characterId: number, refreshToken: string): Promise<void> {
+export async function rotateRefreshToken(
+  sessionId: string,
+  characterId: number,
+  createdAt: string,
+  refreshToken: string,
+  accessToken: string,
+  accessTokenExpiresInSeconds: number
+): Promise<void> {
   const now = new Date().toISOString();
-  const existing = await getSession(sessionId);
+  const nowMs = Date.now();
   await createSession({
     sessionId,
     characterId,
     encryptedRefreshToken: encryptString(refreshToken),
-    createdAt: existing?.createdAt ?? now,
+    encryptedAccessToken: encryptString(accessToken),
+    accessTokenExpiresAt: toExpiresAt(nowMs, accessTokenExpiresInSeconds),
+    createdAt,
     updatedAt: now
   });
 }
@@ -38,12 +79,27 @@ export async function getAccessTokenForSession(sessionId: string): Promise<{ acc
     throw new Error("Session not found");
   }
 
+  const nowMs = Date.now();
+  if (canReuseAccessToken(session, nowMs)) {
+    return {
+      accessToken: decryptString(session.encryptedAccessToken),
+      characterId: session.characterId
+    };
+  }
+
   const refreshToken = decryptString(session.encryptedRefreshToken);
   const tokens = await refreshAccessToken(refreshToken);
   const nextRefresh = tokens.refresh_token || refreshToken;
 
   try {
-    await rotateRefreshToken(session.sessionId, session.characterId, nextRefresh);
+    await rotateRefreshToken(
+      session.sessionId,
+      session.characterId,
+      session.createdAt,
+      nextRefresh,
+      tokens.access_token,
+      tokens.expires_in
+    );
   } catch (error) {
     logger.warn("session_rotate_failed", {
       sessionId: session.sessionId,

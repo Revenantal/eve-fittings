@@ -56,14 +56,16 @@ type FitDetailResponse = {
   itemNamesByFlag: Record<string, string>;
 };
 
-type FitEftResponse = {
-  eft: string;
-};
-
 type FitPriceResponse = {
   totalIsk: number;
   appraisalUrl: string | null;
   lastModified: string;
+};
+
+type FitBundleResponse = {
+  detail: FitDetailResponse;
+  eft: string;
+  price: FitPriceResponse | null;
 };
 
 type ProfileResponse = {
@@ -240,6 +242,17 @@ function DetailSkeleton() {
   );
 }
 
+function FittingWheelSkeleton() {
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-full bg-zinc-900/72 backdrop-blur-[1px]">
+      <div className="relative h-[352px] w-[352px]">
+        <SkeletonBlock className="absolute inset-0 rounded-full" />
+        <SkeletonBlock className="absolute top-1/2 left-1/2 h-[258px] w-[258px] -translate-x-1/2 -translate-y-1/2 rounded-full" />
+      </div>
+    </div>
+  );
+}
+
 function toSlotGroup(flag: number | string): SlotGroup {
   if (typeof flag !== "string") {
     return "other";
@@ -302,6 +315,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   const [showInitialSkeleton, setShowInitialSkeleton] = useState(false);
   const [showDetailSkeleton, setShowDetailSkeleton] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [showInitialImportOverlay, setShowInitialImportOverlay] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeletingPermanently, setIsDeletingPermanently] = useState(false);
   const [isSyncingOne, setIsSyncingOne] = useState(false);
@@ -323,6 +337,9 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   const itemTypeNames = detail?.itemTypeNames ?? {};
   const itemNamesByFlag = detail?.itemNamesByFlag ?? {};
   const isInitialListLoading = isListLoading && list.groups.length === 0;
+  const isWheelRefreshing =
+    isDetailLoading && selectedId !== null && detail !== null && detail.fitting.fitting_id !== selectedId;
+  const isInitialImporting = isImporting && showInitialImportOverlay;
   const slotModel = useMemo<SlotModel>(
     () => {
       if (!detail) {
@@ -522,60 +539,40 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     }
   }
 
-  async function loadDetail(fittingId: number, options?: { bypassCache?: boolean }) {
+  async function loadBundle(fittingId: number, options?: { bypassCache?: boolean }) {
     setIsDetailLoading(true);
+    setIsEftLoading(true);
+    setIsPriceLoading(true);
     setDetailError(null);
     try {
-      const response = await fetch(`/api/fits/${fittingId}`, {
+      const response = await fetch(`/api/fits/${fittingId}/bundle`, {
         cache: options?.bypassCache ? "no-store" : "default"
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as { error?: string };
         setDetailError(typeof data.error === "string" ? data.error : "Unable to load fitting details.");
         setDetail(null);
-        return;
-      }
-      const data = (await response.json()) as FitDetailResponse;
-      setDetail(data);
-    } finally {
-      setIsDetailLoading(false);
-    }
-  }
-
-  async function loadEft(fittingId: number, options?: { bypassCache?: boolean }) {
-    setIsEftLoading(true);
-    try {
-      const response = await fetch(`/api/fits/${fittingId}/eft`, {
-        cache: options?.bypassCache ? "no-store" : "default"
-      });
-      if (!response.ok) {
         setEft("Unable to load EFT format.");
-        return;
-      }
-      const data = (await response.json()) as FitEftResponse;
-      setEft(data.eft);
-    } finally {
-      setIsEftLoading(false);
-    }
-  }
-
-  async function loadPrice(fittingId: number, options?: { bypassCache?: boolean }) {
-    setIsPriceLoading(true);
-    try {
-      const response = await fetch(`/api/fits/${fittingId}/price`, {
-        cache: options?.bypassCache ? "no-store" : "default"
-      });
-      if (!response.ok) {
         setEstimatedTotalIsk(null);
         setEstimatedAppraisalUrl(null);
         setEstimatedLastModified(null);
         return;
       }
-      const data = (await response.json()) as FitPriceResponse;
-      setEstimatedTotalIsk(typeof data.totalIsk === "number" ? data.totalIsk : null);
-      setEstimatedAppraisalUrl(typeof data.appraisalUrl === "string" ? data.appraisalUrl : null);
-      setEstimatedLastModified(typeof data.lastModified === "string" ? data.lastModified : null);
+      const data = (await response.json()) as FitBundleResponse;
+      setDetail(data.detail);
+      setEft(typeof data.eft === "string" ? data.eft : "Unable to load EFT format.");
+      if (data.price) {
+        setEstimatedTotalIsk(typeof data.price.totalIsk === "number" ? data.price.totalIsk : null);
+        setEstimatedAppraisalUrl(typeof data.price.appraisalUrl === "string" ? data.price.appraisalUrl : null);
+        setEstimatedLastModified(typeof data.price.lastModified === "string" ? data.price.lastModified : null);
+      } else {
+        setEstimatedTotalIsk(null);
+        setEstimatedAppraisalUrl(null);
+        setEstimatedLastModified(null);
+      }
     } finally {
+      setIsDetailLoading(false);
+      setIsEftLoading(false);
       setIsPriceLoading(false);
     }
   }
@@ -627,6 +624,8 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   }
 
   async function syncAll() {
+    const isFirstImport = list.updatedAt === null && list.groups.length === 0;
+    setShowInitialImportOverlay(isFirstImport);
     setIsImporting(true);
     try {
       const result = await postJson("/api/fits/sync");
@@ -634,9 +633,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       setSyncCooldownSeconds(0);
       await loadList(query, { bypassCache: true });
       if (selectedId) {
-        await loadDetail(selectedId, { bypassCache: true });
-        await loadEft(selectedId, { bypassCache: true });
-        await loadPrice(selectedId, { bypassCache: true });
+        await loadBundle(selectedId, { bypassCache: true });
       }
       addToast(`Synced ${String(result.count ?? 0)} fittings.`, "success");
     } catch (error) {
@@ -647,6 +644,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       addToast(apiError.message, apiError.tone ?? "error");
     } finally {
       setIsImporting(false);
+      setShowInitialImportOverlay(false);
     }
   }
 
@@ -658,9 +656,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     try {
       const result = await postJson(`/api/fits/${selectedId}/remove`, { confirm: true });
       await loadList(query, { bypassCache: true });
-      await loadDetail(selectedId, { bypassCache: true });
-      await loadEft(selectedId, { bypassCache: true });
-      await loadPrice(selectedId, { bypassCache: true });
+      await loadBundle(selectedId, { bypassCache: true });
       if (result.stale) {
         setSyncStatusOverrides((prev) => ({ ...prev, [selectedId]: false }));
         addToast("Fitting removed from EVE, but refresh failed. Data may be stale.", "warning");
@@ -683,9 +679,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     try {
       const result = await postJson(`/api/fits/${selectedId}/sync`);
       await loadList(query, { bypassCache: true });
-      await loadDetail(selectedId, { bypassCache: true });
-      await loadEft(selectedId, { bypassCache: true });
-      await loadPrice(selectedId, { bypassCache: true });
+      await loadBundle(selectedId, { bypassCache: true });
       if (result.stale) {
         setSyncStatusOverrides((prev) => ({ ...prev, [selectedId]: true }));
         addToast("Fitting imported to EVE, but refresh failed. Data may be stale.", "warning");
@@ -841,9 +835,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     if (!selectedId) {
       return;
     }
-    void loadDetail(selectedId);
-    void loadEft(selectedId);
-    void loadPrice(selectedId);
+    void loadBundle(selectedId);
   }, [selectedId]);
 
   useEffect(() => {
@@ -967,11 +959,11 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
 
   return (
     <div className="flex min-h-screen w-full items-start gap-4 p-4">
-      {isImporting ? (
+      {isInitialImporting ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
           <div className="flex items-center gap-3 rounded bg-zinc-900 px-4 py-3 text-zinc-100 shadow-xl">
             <Spinner className="h-5 w-5 border-zinc-600 border-t-cyan-400" />
-            <p className="text-sm">Importing fittings...</p>
+            <p className="text-sm">Importing EVE fits...</p>
           </div>
         </div>
       ) : null}
@@ -996,7 +988,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
             )}
           </button>
           <div className="flex items-center gap-3">
-            {isProfileLoading && !profile && showInitialSkeleton ? (
+            {isProfileLoading && !profile && showInitialSkeleton && !isInitialImporting ? (
               <>
                 <SkeletonBlock className="h-[80px] w-[80px] shrink-0" />
                 <div className="min-w-0 flex-1 space-y-2">
@@ -1035,7 +1027,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
             onChange={(event) => setQuery(event.target.value)}
           />
           <div ref={fittingsScrollContainerRef} className="dark-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-            {isInitialListLoading && showInitialSkeleton ? (
+            {isInitialListLoading && showInitialSkeleton && !isInitialImporting ? (
               <div className="space-y-2">
                 {Array.from({ length: 14 }, (_, index) => (
                   <SkeletonBlock key={index} className="h-7 w-full" />
@@ -1192,7 +1184,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       </aside>
 
       <main className="min-w-0 flex-1 self-stretch flex flex-col gap-3 rounded bg-zinc-900 p-4">
-        {isInitialListLoading && showInitialSkeleton ? (
+        {isInitialListLoading && showInitialSkeleton && !isInitialImporting ? (
           <DetailSkeleton />
         ) : isInitialListLoading ? (
           <div className="min-h-[220px]" />
@@ -1211,6 +1203,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
             <section className="rounded bg-zinc-950/60 p-3 shadow-sm">
               <div className="flex flex-wrap items-center gap-4">
                 <div className="relative h-[352px] w-[352px] shrink-0 rounded-full bg-zinc-800/40">
+                  {isWheelRefreshing ? <FittingWheelSkeleton /> : null}
                   <div className="absolute top-1/2 left-1/2 h-[258px] w-[258px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full bg-zinc-900/70">
                     <Image
                       src={shipImageUrl ?? `https://images.evetech.net/types/${detail.shipTypeId}/icon?size=256`}

@@ -84,7 +84,7 @@ describe("GET /api/auth/callback", () => {
 
     const response = await GET(new NextRequest("http://localhost/api/auth/callback?code=abc&state=expected"));
 
-    expect(createUserSession).toHaveBeenCalledWith(1337, "refresh");
+    expect(createUserSession).toHaveBeenCalledWith(1337, "access", 1200, "refresh");
     expect(setCsrfCookie).toHaveBeenCalledWith("csrf-1");
     expect(syncCharacterFittings).toHaveBeenCalledWith(1337, "access");
     expect(response.status).toBe(307);

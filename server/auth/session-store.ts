@@ -3,14 +3,17 @@ import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { deletePrivateBlob, readPrivateBlobJson, writePrivateBlobJson } from "@/lib/storage/blob-json";
 import { env } from "@/server/config/env";
 
-const SESSION_DIR = path.join(env.fitsStorageRoot, "sessions");
+const SESSION_DIR = path.join(env.cacheStorageRoot, "sessions");
 
 export type SessionRecord = {
   sessionId: string;
   characterId: number;
   encryptedRefreshToken: string;
+  encryptedAccessToken?: string;
+  accessTokenExpiresAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -30,6 +33,10 @@ async function ensureSessionDir(): Promise<void> {
 
 function sessionPath(sessionId: string): string {
   return path.join(SESSION_DIR, `${sessionId}.json`);
+}
+
+function sessionBlobPath(sessionId: string): string {
+  return `${env.sessionBlobPrefix}/${sessionId}.json`;
 }
 
 async function atomicWriteJson(filePath: string, payload: unknown): Promise<void> {
@@ -57,11 +64,27 @@ async function atomicWriteJson(filePath: string, payload: unknown): Promise<void
 }
 
 export async function createSession(record: SessionRecord): Promise<void> {
+  if (env.sessionStorageBackend === "blob") {
+    await writePrivateBlobJson(sessionBlobPath(record.sessionId), record);
+    return;
+  }
   await ensureSessionDir();
   await atomicWriteJson(sessionPath(record.sessionId), record);
 }
 
 export async function getSession(sessionId: string): Promise<SessionRecord | null> {
+  if (env.sessionStorageBackend === "blob") {
+    const record = await readPrivateBlobJson<SessionRecord>(sessionBlobPath(sessionId));
+    if (!record) {
+      return null;
+    }
+    if (isExpired(record)) {
+      await deleteSession(sessionId);
+      return null;
+    }
+    return record;
+  }
+
   try {
     const raw = await fs.readFile(sessionPath(sessionId), "utf8");
     const record = JSON.parse(raw) as SessionRecord;
@@ -79,6 +102,15 @@ export async function getSession(sessionId: string): Promise<SessionRecord | nul
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
+  if (env.sessionStorageBackend === "blob") {
+    try {
+      await deletePrivateBlob(sessionBlobPath(sessionId));
+    } catch {
+      // Ignore delete misses for idempotent logout/session cleanup.
+    }
+    return;
+  }
+
   try {
     await fs.unlink(sessionPath(sessionId));
   } catch (error) {

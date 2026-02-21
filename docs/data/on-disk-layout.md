@@ -1,15 +1,29 @@
 # On-disk Layout (No Database)
 
-Root directory: `FITS_STORAGE_ROOT` (default `./data`)
+Persisted fit root: `FITS_STORAGE_ROOT` (default `./data`)
+Cache/session root: `CACHE_STORAGE_ROOT` (default `./.cache/eve-fittings`)
 
 ```
 data/
   <character_id>/
     index.json
     <fitting_id>.json
-  _cache/
-    ship-types/
-      <ship_type_id>.json
+
+.cache/eve-fittings/
+  sessions/
+    <session_id>.json
+  ship-types/
+    <ship_type_id>.json
+  types/
+    <type_id>.json
+  groups/
+    <group_id>.json
+  factions/
+    universe-factions.json
+  races/
+    universe-races.json
+  janice/
+    <hash>.json
 ```
 
 ## Character fitting file
@@ -39,7 +53,7 @@ Recommended fields:
 
 ## Ship type cache file
 Path:
-- `<FITS_STORAGE_ROOT>/_cache/ship-types/<ship_type_id>.json`
+- `<CACHE_STORAGE_ROOT>/ship-types/<ship_type_id>.json`
 
 Recommended fields:
 - `shipTypeId`
@@ -51,6 +65,7 @@ Default TTL: 30 days (override with `SHIP_TYPE_CACHE_TTL_DAYS`).
 
 ## Security requirements
 - Keep `FITS_STORAGE_ROOT` outside public static serving paths.
+- Keep `CACHE_STORAGE_ROOT` outside public static serving paths.
 - Disallow directory listing and direct HTTP reads.
 - Grant read/write only to the server runtime identity.
 

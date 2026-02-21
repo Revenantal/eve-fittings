@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -60,23 +61,23 @@ function refDataCacheTtlDays(): number {
 }
 
 function cacheFilePath(shipTypeId: number): string {
-  return path.join(env.fitsStorageRoot, "_cache", "ship-types", `${shipTypeId}.json`);
+  return path.join(env.cacheStorageRoot, "ship-types", `${shipTypeId}.json`);
 }
 
 function typeCacheFilePath(typeId: number): string {
-  return path.join(env.fitsStorageRoot, "_cache", "types", `${typeId}.json`);
+  return path.join(env.cacheStorageRoot, "types", `${typeId}.json`);
 }
 
 function groupCacheFilePath(groupId: number): string {
-  return path.join(env.fitsStorageRoot, "_cache", "groups", `${groupId}.json`);
+  return path.join(env.cacheStorageRoot, "groups", `${groupId}.json`);
 }
 
 function factionMapCacheFilePath(): string {
-  return path.join(env.fitsStorageRoot, "_cache", "factions", "universe-factions.json");
+  return path.join(env.cacheStorageRoot, "factions", "universe-factions.json");
 }
 
 function raceMapCacheFilePath(): string {
-  return path.join(env.fitsStorageRoot, "_cache", "races", "universe-races.json");
+  return path.join(env.cacheStorageRoot, "races", "universe-races.json");
 }
 
 function isFresh(expiresAt: string, now: Date): boolean {
@@ -100,9 +101,25 @@ function withTtl(now: Date): string {
 async function writeJsonAtomic(filePath: string, fileNamePrefix: string, payload: unknown): Promise<void> {
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
-  const tempPath = path.join(dir, `${fileNamePrefix}.${Date.now()}.tmp`);
-  await fs.writeFile(tempPath, JSON.stringify(payload, null, 2), "utf8");
-  await fs.rename(tempPath, filePath);
+  const tempPath = path.join(dir, `${fileNamePrefix}.${Date.now()}.${randomUUID()}.tmp`);
+  const serialized = JSON.stringify(payload, null, 2);
+  await fs.writeFile(tempPath, serialized, "utf8");
+  try {
+    await fs.rename(tempPath, filePath);
+    return;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") {
+      throw error;
+    }
+    // OneDrive/AV can briefly lock files; fallback keeps cache warm.
+    await fs.writeFile(filePath, serialized, "utf8");
+    try {
+      await fs.unlink(tempPath);
+    } catch {
+      // Ignore temp cleanup failures.
+    }
+  }
 }
 
 async function readCacheRecord(shipTypeId: number): Promise<ShipTypeCacheRecord | null> {

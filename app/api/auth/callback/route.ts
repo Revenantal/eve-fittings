@@ -31,7 +31,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const tokens = await exchangeCodeForTokens(code);
     const verify = await verifyAccessToken(tokens.access_token);
-    await createUserSession(verify.CharacterID, tokens.refresh_token);
+    await createUserSession(verify.CharacterID, tokens.access_token, tokens.expires_in, tokens.refresh_token);
 
     const csrfToken = createCsrfToken();
     await setCsrfCookie(csrfToken);

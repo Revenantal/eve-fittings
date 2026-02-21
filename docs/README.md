@@ -3,11 +3,11 @@
 Homepage-first flow for EVE fittings:
 1. User logs in with EVE SSO.
 2. Server fetches `GET /characters/{character_id}/fittings/`.
-3. Server stores each fitting at `<FITS_STORAGE_ROOT>/<character_id>/<fitting_id>.json`.
+3. Server stores each fitting at `<FITS_STORAGE_ROOT>/<character_id>/<fitting_id>.json` (or Blob when enabled).
 4. UI lists fittings grouped by ship type name (A-Z) with search.
 5. UI shows formatted fitting JSON and conditional `Remove from EVE` or `Sync to EVE` actions.
 
-> No database. Storage is private server-side filesystem data.
+> No database required. Persisted fits can use filesystem or Blob storage; caches/sessions are separate.
 
 ## Tech stack
 - Next.js (App Router) + TypeScript
@@ -55,7 +55,8 @@ npm test
 /server
   /auth
   /config
-/data               # gitignored: private server-side JSON storage
+/data               # gitignored: persisted fit JSON storage (local backend)
+/.cache             # gitignored: local cache/session files
 /docs
 ```
 

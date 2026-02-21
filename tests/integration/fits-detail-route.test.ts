@@ -24,6 +24,7 @@ import { withCharacterLock } from "@/lib/storage/lock";
 import { validateCsrfHeader } from "@/server/auth/csrf";
 import { requireAuthenticatedEsiContext } from "@/server/auth/esi-context";
 import { DELETE, GET } from "@/app/api/fits/[fittingId]/route";
+import { GET as GET_BUNDLE } from "@/app/api/fits/[fittingId]/bundle/route";
 import { GET as GET_EFT } from "@/app/api/fits/[fittingId]/eft/route";
 import { GET as GET_PRICE } from "@/app/api/fits/[fittingId]/price/route";
 
@@ -212,6 +213,157 @@ describe("GET /api/fits/[fittingId]/eft", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ error: "Invalid fitting id" });
   });
+
+  it("returns 404 when eft source fitting is missing", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
+      sessionId: "s1",
+      characterId: 100,
+      accessToken: "token"
+    });
+    const missing = new Error("missing") as NodeJS.ErrnoException;
+    missing.code = "ENOENT";
+    vi.mocked(getFittingEft).mockRejectedValue(missing);
+
+    const response = await GET_EFT(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: "Fitting not found" });
+  });
+
+  it("returns 500 for unexpected eft failures", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
+      sessionId: "s1",
+      characterId: 100,
+      accessToken: "token"
+    });
+    vi.mocked(getFittingEft).mockRejectedValue(new Error("upstream failure"));
+
+    const response = await GET_EFT(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({ error: "Unable to load fitting EFT" });
+  });
+});
+
+describe("GET /api/fits/[fittingId]/bundle", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("returns detail, eft, and price for valid requests", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
+      sessionId: "s1",
+      characterId: 100,
+      accessToken: "token"
+    });
+    vi.mocked(getFittingDetail).mockResolvedValue({
+      fitting: {
+        description: "",
+        fitting_id: 10,
+        items: [],
+        name: "Fit A",
+        ship_type_id: 123
+      },
+      canRemoveFromEve: true,
+      canSyncToEve: false,
+      shipTypeId: 123,
+      shipTypeName: "Caracal",
+      fittingName: "Fit A",
+      itemTypeNames: {},
+      itemNamesByFlag: {}
+    });
+    vi.mocked(getFittingEft).mockResolvedValue("[Caracal, Fit A]");
+    vi.mocked(getFittingPriceEstimate).mockResolvedValue({
+      totalIsk: 1000000,
+      appraisalUrl: "https://janice.e-351.com/a/abc123",
+      lastModified: "2026-02-20T12:34:56.000Z"
+    });
+
+    const response = await GET_BUNDLE(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      detail: { fitting: { fitting_id: 10 } },
+      eft: "[Caracal, Fit A]",
+      price: { totalIsk: 1000000 }
+    });
+  });
+
+  it("returns 404 when source fitting is missing", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
+      sessionId: "s1",
+      characterId: 100,
+      accessToken: "token"
+    });
+    const missing = new Error("missing") as NodeJS.ErrnoException;
+    missing.code = "ENOENT";
+    vi.mocked(getFittingDetail).mockRejectedValue(missing);
+
+    const response = await GET_BUNDLE(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: "Fitting not found" });
+  });
+
+  it("returns 500 when bundle detail lookup fails unexpectedly", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
+      sessionId: "s1",
+      characterId: 100,
+      accessToken: "token"
+    });
+    vi.mocked(getFittingDetail).mockRejectedValue(new Error("downstream"));
+
+    const response = await GET_BUNDLE(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({ error: "Unable to load fitting bundle" });
+  });
+
+  it("returns partial bundle when eft or price fails", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
+      sessionId: "s1",
+      characterId: 100,
+      accessToken: "token"
+    });
+    vi.mocked(getFittingDetail).mockResolvedValue({
+      fitting: {
+        description: "",
+        fitting_id: 10,
+        items: [],
+        name: "Fit A",
+        ship_type_id: 123
+      },
+      canRemoveFromEve: true,
+      canSyncToEve: false,
+      shipTypeId: 123,
+      shipTypeName: "Caracal",
+      fittingName: "Fit A",
+      itemTypeNames: {},
+      itemNamesByFlag: {}
+    });
+    vi.mocked(getFittingEft).mockRejectedValue(new Error("eft down"));
+    vi.mocked(getFittingPriceEstimate).mockRejectedValue(new Error("price down"));
+
+    const response = await GET_BUNDLE(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      eft: "Unable to load EFT format.",
+      price: null
+    });
+  });
 });
 
 describe("GET /api/fits/[fittingId]/price", () => {
@@ -253,7 +405,25 @@ describe("GET /api/fits/[fittingId]/price", () => {
     await expect(response.json()).resolves.toMatchObject({ error: "Invalid fitting id" });
   });
 
-  it("returns 404 when price lookup fails", async () => {
+  it("returns 404 when price lookup source fitting is missing", async () => {
+    vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
+      sessionId: "s1",
+      characterId: 100,
+      accessToken: "token"
+    });
+    const missing = new Error("missing") as NodeJS.ErrnoException;
+    missing.code = "ENOENT";
+    vi.mocked(getFittingPriceEstimate).mockRejectedValue(missing);
+
+    const response = await GET_PRICE(new Request("http://localhost"), {
+      params: Promise.resolve({ fittingId: "10" })
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: "Unable to estimate fitting price" });
+  });
+
+  it("returns 500 when price lookup fails unexpectedly", async () => {
     vi.mocked(requireAuthenticatedEsiContext).mockResolvedValue({
       sessionId: "s1",
       characterId: 100,
@@ -265,7 +435,7 @@ describe("GET /api/fits/[fittingId]/price", () => {
       params: Promise.resolve({ fittingId: "10" })
     });
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(500);
     await expect(response.json()).resolves.toMatchObject({ error: "Unable to estimate fitting price" });
   });
 });

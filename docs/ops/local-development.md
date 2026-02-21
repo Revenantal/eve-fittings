@@ -8,8 +8,9 @@
 
 ## Data directory
 - Fits are stored under `FITS_STORAGE_ROOT` (default `./data`).
-- Ensure the directory is writable.
-- Add `data/` to `.gitignore`.
+- Caches/sessions are stored under `CACHE_STORAGE_ROOT` (default `./.cache/eve-fittings`) when local backends are enabled.
+- Ensure local storage directories are writable.
+- Add `data/` and `.cache/` to `.gitignore`.
 
 ## Common issues
 - Callback mismatch: ensure `EVE_CALLBACK_URL` matches the app registration.

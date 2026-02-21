@@ -316,7 +316,7 @@ type JaniceCacheEntry = {
 };
 
 const JANICE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const JANICE_CACHE_DIR = path.join(env.fitsStorageRoot, ".janice-cache");
+const JANICE_CACHE_DIR = path.join(env.cacheStorageRoot, "janice");
 
 function toJaniceCacheKey(eft: string): string {
   return createHash("sha256").update(`market=2|pricing=split|${eft}`).digest("hex");

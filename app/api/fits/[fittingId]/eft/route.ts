@@ -7,6 +7,18 @@ import { logger } from "@/server/logging/logger";
 
 export const dynamic = "force-dynamic";
 
+function classifyEftError(error: unknown): { status: number; error: string } {
+  const err = error as NodeJS.ErrnoException;
+  const message = (error as Error).message ?? "";
+  if (message === "Not authenticated" || message === "Session not found") {
+    return { status: 401, error: "Unauthorized" };
+  }
+  if (err.code === "ENOENT") {
+    return { status: 404, error: "Fitting not found" };
+  }
+  return { status: 500, error: "Unable to load fitting EFT" };
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ fittingId: string }> }
@@ -25,7 +37,9 @@ export async function GET(
     logger.info("fit_eft_loaded", { requestId, characterId, fittingId });
     return jsonOk({ eft }, { headers: PRIVATE_NO_STORE_HEADERS });
   } catch (error) {
-    logger.warn("fit_eft_failed", { requestId, fittingId, message: (error as Error).message });
-    return jsonError(404, "Fitting not found", (error as Error).message);
+    const classified = classifyEftError(error);
+    const log = classified.status >= 500 ? logger.error : logger.warn;
+    log("fit_eft_failed", { requestId, fittingId, status: classified.status, message: (error as Error).message });
+    return jsonError(classified.status, classified.error, (error as Error).message);
   }
 }

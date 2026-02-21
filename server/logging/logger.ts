@@ -1,6 +1,7 @@
 import "server-only";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
+type ConfigLogLevel = LogLevel | "none";
 
 type LogMeta = Record<string, unknown>;
 
@@ -11,16 +12,20 @@ const levelOrder: Record<LogLevel, number> = {
   error: 40
 };
 
-function currentLevel(): LogLevel {
+function currentLevel(): ConfigLogLevel {
   const value = (process.env.LOG_LEVEL ?? "info").toLowerCase();
-  if (value === "debug" || value === "info" || value === "warn" || value === "error") {
+  if (value === "debug" || value === "info" || value === "warn" || value === "error" || value === "none") {
     return value;
   }
   return "info";
 }
 
 function shouldLog(level: LogLevel): boolean {
-  return levelOrder[level] >= levelOrder[currentLevel()];
+  const configured = currentLevel();
+  if (configured === "none") {
+    return false;
+  }
+  return levelOrder[level] >= levelOrder[configured];
 }
 
 function emit(level: LogLevel, event: string, meta?: LogMeta): void {

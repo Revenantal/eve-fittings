@@ -362,8 +362,21 @@ async function writeJaniceCachedTotal(cacheKey: string, totalIsk: number, apprai
     appraisalUrl,
     expiresAt: Date.now() + JANICE_CACHE_TTL_MS
   };
-  await mkdir(JANICE_CACHE_DIR, { recursive: true });
-  await writeFile(toJaniceCachePath(cacheKey), JSON.stringify(entry), "utf8");
+  try {
+    await mkdir(JANICE_CACHE_DIR, { recursive: true });
+    await writeFile(toJaniceCachePath(cacheKey), JSON.stringify(entry), "utf8");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EROFS" || code === "ENOENT" || code === "EACCES" || code === "EPERM") {
+      // Cache writes are best-effort in serverless/read-only filesystems.
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function getFittingLastModified(characterId: number, fittingId: number): Promise<string> {
+  return readFittingLastModified(characterId, fittingId);
 }
 
 export async function getFittingPriceEstimate(

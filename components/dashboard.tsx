@@ -67,6 +67,7 @@ type FitBundleResponse = {
   detail: FitDetailResponse;
   eft: string;
   price: FitPriceResponse | null;
+  lastModified: string | null;
 };
 
 type ProfileResponse = {
@@ -594,14 +595,17 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       const data = (await response.json()) as FitBundleResponse;
       setDetail(data.detail);
       setEft(typeof data.eft === "string" ? data.eft : "Unable to load EFT format.");
+      const fallbackLastModified = typeof data.lastModified === "string" ? data.lastModified : null;
       if (data.price) {
         setEstimatedTotalIsk(typeof data.price.totalIsk === "number" ? data.price.totalIsk : null);
         setEstimatedAppraisalUrl(typeof data.price.appraisalUrl === "string" ? data.price.appraisalUrl : null);
-        setEstimatedLastModified(typeof data.price.lastModified === "string" ? data.price.lastModified : null);
+        setEstimatedLastModified(
+          typeof data.price.lastModified === "string" ? data.price.lastModified : fallbackLastModified
+        );
       } else {
         setEstimatedTotalIsk(null);
         setEstimatedAppraisalUrl(null);
-        setEstimatedLastModified(null);
+        setEstimatedLastModified(fallbackLastModified);
       }
     } finally {
       setIsDetailLoading(false);

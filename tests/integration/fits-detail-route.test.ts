@@ -8,7 +8,8 @@ vi.mock("@/lib/fits/service", () => ({
   getFittingDetail: vi.fn(),
   deleteStoredFittingPermanently: vi.fn(),
   getFittingEft: vi.fn(),
-  getFittingPriceEstimate: vi.fn()
+  getFittingPriceEstimate: vi.fn(),
+  getFittingLastModified: vi.fn()
 }));
 
 vi.mock("@/lib/storage/lock", () => ({
@@ -19,7 +20,13 @@ vi.mock("@/server/auth/csrf", () => ({
   validateCsrfHeader: vi.fn()
 }));
 
-import { deleteStoredFittingPermanently, getFittingDetail, getFittingEft, getFittingPriceEstimate } from "@/lib/fits/service";
+import {
+  deleteStoredFittingPermanently,
+  getFittingDetail,
+  getFittingEft,
+  getFittingLastModified,
+  getFittingPriceEstimate
+} from "@/lib/fits/service";
 import { withCharacterLock } from "@/lib/storage/lock";
 import { validateCsrfHeader } from "@/server/auth/csrf";
 import { requireAuthenticatedEsiContext } from "@/server/auth/esi-context";
@@ -282,6 +289,7 @@ describe("GET /api/fits/[fittingId]/bundle", () => {
       appraisalUrl: "https://janice.e-351.com/a/abc123",
       lastModified: "2026-02-20T12:34:56.000Z"
     });
+    vi.mocked(getFittingLastModified).mockResolvedValue("2026-02-20T12:34:56.000Z");
 
     const response = await GET_BUNDLE(new Request("http://localhost"), {
       params: Promise.resolve({ fittingId: "10" })
@@ -353,6 +361,7 @@ describe("GET /api/fits/[fittingId]/bundle", () => {
     });
     vi.mocked(getFittingEft).mockRejectedValue(new Error("eft down"));
     vi.mocked(getFittingPriceEstimate).mockRejectedValue(new Error("price down"));
+    vi.mocked(getFittingLastModified).mockResolvedValue("2026-02-20T12:34:56.000Z");
 
     const response = await GET_BUNDLE(new Request("http://localhost"), {
       params: Promise.resolve({ fittingId: "10" })

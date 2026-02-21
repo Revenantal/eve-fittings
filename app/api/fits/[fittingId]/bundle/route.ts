@@ -2,7 +2,7 @@ import { jsonError, jsonOk } from "@/lib/http/response";
 import { classifyRouteError } from "@/lib/http/error-classification";
 import { getRequestId } from "@/lib/http/request-id";
 import { PRIVATE_NO_STORE_HEADERS } from "@/lib/http/cache";
-import { getFittingDetail, getFittingEft, getFittingPriceEstimate } from "@/lib/fits/service";
+import { getFittingDetail, getFittingEft, getFittingLastModified, getFittingPriceEstimate } from "@/lib/fits/service";
 import { requireAuthenticatedEsiContext } from "@/server/auth/esi-context";
 import { logger } from "@/server/logging/logger";
 
@@ -23,9 +23,10 @@ export async function GET(
   try {
     const { characterId } = await requireAuthenticatedEsiContext();
     const detail = await getFittingDetail(characterId, fittingId);
-    const [eftResult, priceResult] = await Promise.allSettled([
+    const [eftResult, priceResult, lastModifiedResult] = await Promise.allSettled([
       getFittingEft(characterId, fittingId),
-      getFittingPriceEstimate(characterId, fittingId)
+      getFittingPriceEstimate(characterId, fittingId),
+      getFittingLastModified(characterId, fittingId)
     ]);
 
     if (eftResult.status === "rejected") {
@@ -44,13 +45,22 @@ export async function GET(
         message: (priceResult.reason as Error)?.message ?? "unknown"
       });
     }
+    if (lastModifiedResult.status === "rejected") {
+      logger.warn("fit_bundle_last_modified_partial_failure", {
+        requestId,
+        characterId,
+        fittingId,
+        message: (lastModifiedResult.reason as Error)?.message ?? "unknown"
+      });
+    }
 
     logger.info("fit_bundle_loaded", { requestId, characterId, fittingId });
     return jsonOk(
       {
         detail,
         eft: eftResult.status === "fulfilled" ? eftResult.value : "Unable to load EFT format.",
-        price: priceResult.status === "fulfilled" ? priceResult.value : null
+        price: priceResult.status === "fulfilled" ? priceResult.value : null,
+        lastModified: lastModifiedResult.status === "fulfilled" ? lastModifiedResult.value : null
       },
       { headers: PRIVATE_NO_STORE_HEADERS }
     );

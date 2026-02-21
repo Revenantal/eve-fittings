@@ -1,0 +1,107 @@
+{
+  "generatedAt": "2026-02-21T01:27:22.809Z",
+  "libraries": [
+    {
+      "name": "@tailwindcss/postcss",
+      "version": "4.2.0",
+      "license": "MIT",
+      "url": "https://tailwindcss.com"
+    },
+    {
+      "name": "@types/node",
+      "version": "20.19.33",
+      "license": "MIT",
+      "url": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/node"
+    },
+    {
+      "name": "@types/react",
+      "version": "19.2.14",
+      "license": "MIT",
+      "url": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react"
+    },
+    {
+      "name": "@types/react-dom",
+      "version": "19.2.3",
+      "license": "MIT",
+      "url": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react-dom"
+    },
+    {
+      "name": "@types/sanitize-html",
+      "version": "2.16.0",
+      "license": "MIT",
+      "url": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/sanitize-html"
+    },
+    {
+      "name": "@vercel/blob",
+      "version": "2.3.0",
+      "license": "Apache-2.0",
+      "url": "https://vercel.com/storage/blob"
+    },
+    {
+      "name": "eslint",
+      "version": "9.39.2",
+      "license": "MIT",
+      "url": "https://eslint.org"
+    },
+    {
+      "name": "eslint-config-next",
+      "version": "16.1.6",
+      "license": "MIT",
+      "url": "https://nextjs.org/docs/app/api-reference/config/eslint"
+    },
+    {
+      "name": "next",
+      "version": "16.1.6",
+      "license": "MIT",
+      "url": "https://nextjs.org"
+    },
+    {
+      "name": "react",
+      "version": "19.2.3",
+      "license": "MIT",
+      "url": "https://react.dev/"
+    },
+    {
+      "name": "react-dom",
+      "version": "19.2.3",
+      "license": "MIT",
+      "url": "https://react.dev/"
+    },
+    {
+      "name": "react-icons",
+      "version": "5.5.0",
+      "license": "MIT",
+      "url": "https://github.com/react-icons/react-icons#readme"
+    },
+    {
+      "name": "sanitize-html",
+      "version": "2.17.1",
+      "license": "MIT",
+      "url": "https://github.com/apostrophecms/apostrophe/tree/main/packages/sanitize-html#readme"
+    },
+    {
+      "name": "server-only",
+      "version": "0.0.1",
+      "license": "MIT",
+      "url": "https://reactjs.org/"
+    },
+    {
+      "name": "tailwindcss",
+      "version": "4.2.0",
+      "license": "MIT",
+      "url": "https://tailwindcss.com"
+    },
+    {
+      "name": "typescript",
+      "version": "5.9.3",
+      "license": "Apache-2.0",
+      "url": "https://www.typescriptlang.org/"
+    },
+    {
+      "name": "vitest",
+      "version": "3.2.4",
+      "license": "MIT",
+      "url": "https://github.com/vitest-dev/vitest#readme"
+    }
+  ]
+}

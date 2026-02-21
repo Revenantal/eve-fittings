@@ -1,0 +1,53 @@
+{
+  "services": [
+    {
+      "name": "EVE Online SSO and ESI",
+      "purpose": "Authentication and character fitting data access.",
+      "url": "https://developers.eveonline.com/docs/services/esi/overview/",
+      "termsUrl": "https://developers.eveonline.com/license-agreement",
+      "requiredNotice": "EVE Online and the EVE logo are the registered trademarks of CCP hf. All rights are reserved worldwide.",
+      "notes": "This project is not endorsed by CCP."
+    },
+    {
+      "name": "EVE Image Server",
+      "purpose": "Ship, item, and portrait images used in the UI.",
+      "url": "https://developers.eveonline.com/docs/services/image/",
+      "termsUrl": "https://developers.eveonline.com/license-agreement",
+      "notes": "Image usage follows CCP third-party developer terms."
+    },
+    {
+      "name": "EVE Ref Reference Data API",
+      "purpose": "Type, group, and metadata lookups used for fitting classification and naming.",
+      "url": "https://docs.everef.net/datasets/reference-data/",
+      "termsUrl": "https://docs.everef.net/",
+      "notes": "Used as a reference-data source to complement ESI."
+    },
+    {
+      "name": "Janice",
+      "purpose": "Fitting appraisal and ISK estimate calculations.",
+      "url": "https://janice.e-351.com/",
+      "termsUrl": "https://janice.e-351.com/",
+      "notes": "Accessed through Janice API endpoints configured by API key."
+    }
+  ],
+  "resources": [
+    {
+      "name": "Kaltekar (EVE Online)",
+      "purpose": "Landing page background image subject and universe attribution.",
+      "url": "https://www.eveonline.com/",
+      "notes": "Landing hero image attributed to Kaltekar from EVE Online."
+    },
+    {
+      "name": "EVE Online",
+      "purpose": "Game universe, names, and mechanics represented by fitting data.",
+      "url": "https://www.eveonline.com/",
+      "notes": "All EVE intellectual property remains owned by CCP."
+    },
+    {
+      "name": "CCP Third Party Developer License Agreement",
+      "purpose": "Legal terms for EVE API and related asset usage.",
+      "url": "https://developers.eveonline.com/license-agreement",
+      "notes": "Legal requirements are reflected in attribution notices."
+    }
+  ]
+}

@@ -112,7 +112,7 @@ export const env: Env = {
   blobJsonCacheMaxEntries: optionalNumber("BLOB_JSON_CACHE_MAX_ENTRIES", 1000),
   logLevel: optional("LOG_LEVEL", "info"),
   shipTypeCacheTtlDays: optionalNumber("SHIP_TYPE_CACHE_TTL_DAYS", 30),
-  userAgent: optional("ESI_USER_AGENT", "eve-fittings/0.1 (+https://localhost)"),
+  userAgent: optional("ESI_USER_AGENT", "eve-fittings/1.0.0 (+https://localhost)"),
   sessionTtlHours: optionalNumber("SESSION_TTL_HOURS", 168),
   syncMinIntervalSeconds: optionalNumber("SYNC_MIN_INTERVAL_SECONDS", 300),
   janiceApiKey: required("JANICE_API_KEY")

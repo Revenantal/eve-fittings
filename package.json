@@ -1,6 +1,6 @@
 {
   "name": "eve-fittings",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "attributions:sync": "node scripts/sync-attributions.mjs",
+    "attributions:check": "node scripts/sync-attributions.mjs --check",
     "test": "vitest run",
     "test:watch": "vitest"
   },

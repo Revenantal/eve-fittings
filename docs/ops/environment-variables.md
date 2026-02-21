@@ -27,7 +27,7 @@ Create `.env.local` from `.env.example`.
 | `BLOB_JSON_CACHE_MAX_ENTRIES` | `1000` | Maximum entries kept in blob JSON read cache (per process) |
 | `LOG_LEVEL` | `info` | Logging verbosity (`none`, `debug`, `info`, `warn`, `error`) |
 | `SHIP_TYPE_CACHE_TTL_DAYS` | `30` | TTL for EVERef ship type name cache |
-| `ESI_USER_AGENT` | `eve-fittings/0.1 (+https://localhost)` | Outbound User-Agent for ESI/SSO requests |
+| `ESI_USER_AGENT` | `eve-fittings/1.0.0 (+https://localhost)` | Outbound User-Agent for ESI/SSO requests |
 | `SESSION_TTL_HOURS` | `168` | Idle session TTL in hours before session invalidation |
 | `SYNC_MIN_INTERVAL_SECONDS` | `300` | Minimum interval between manual `/api/fits/sync` requests per character |
 | `JANICE_API_KEY` | `replace-me` | Janice API key used for fitting price lookups |

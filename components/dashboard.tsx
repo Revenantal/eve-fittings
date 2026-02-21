@@ -10,6 +10,7 @@ import {
   IoCloudOfflineOutline,
   IoCloudUploadOutline,
   IoClose,
+  IoMenu,
   IoOpenOutline,
   IoTrashOutline
 } from "react-icons/io5";
@@ -154,6 +155,7 @@ const SLOT_GROUP_CENTER_ANGLE: Record<FixedSlotGroup, number> = {
 const DEFAULT_PAGE_TITLE = "EVE Fittings";
 const DASHBOARD_UI_STATE_STORAGE_KEY = "eve-fittings-dashboard-ui-v1";
 const DASHBOARD_SYNC_OVERRIDES_STORAGE_KEY = "eve-fittings-sync-overrides-v1";
+const SIDEBAR_COLLAPSE_BREAKPOINT = 1400;
 
 function formatSyncDate(value: string | null): string {
   if (!value) {
@@ -217,9 +219,9 @@ function DetailSkeleton() {
   return (
     <>
       <section className="rounded bg-zinc-950/60 p-3 shadow-sm">
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center justify-center gap-4 max-[900px]:flex-col max-[900px]:items-center">
           <SkeletonBlock className="h-[352px] w-[352px] rounded-full" />
-          <div className="min-w-0 flex-1 space-y-3 pl-0 text-left md:pl-6">
+          <div className="min-w-0 flex-1 space-y-3 pl-0 text-center md:pl-6">
             <SkeletonBlock className="h-8 w-2/3" />
             <SkeletonBlock className="h-5 w-1/3" />
             <SkeletonBlock className="h-4 w-1/4" />
@@ -326,6 +328,8 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   const [collapsedClasses, setCollapsedClasses] = useState<Record<string, boolean>>({});
   const [collapsedFactions, setCollapsedFactions] = useState<Record<string, boolean>>({});
   const [collapsedShips, setCollapsedShips] = useState<Record<string, boolean>>({});
+  const [isCompactSidebar, setIsCompactSidebar] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const actionBusy = isImporting || isDeleting || isDeletingPermanently || isSyncingOne || isLoggingOut;
   const syncButtonDisabled = actionBusy || syncCooldownSeconds > 0;
@@ -878,6 +882,45 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
   }, [detail?.fittingName]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const media = window.matchMedia(`(max-width: ${SIDEBAR_COLLAPSE_BREAKPOINT}px)`);
+    const applyLayout = (isCompact: boolean) => {
+      setIsCompactSidebar(isCompact);
+      setIsSidebarOpen(!isCompact);
+    };
+
+    applyLayout(media.matches);
+    const handleChange = (event: MediaQueryListEvent) => {
+      applyLayout(event.matches);
+    };
+
+    media.addEventListener("change", handleChange);
+    return () => {
+      media.removeEventListener("change", handleChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isCompactSidebar || !isSidebarOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isCompactSidebar, isSidebarOpen]);
+
+  useEffect(() => {
     if (!isInitialListLoading) {
       setShowInitialSkeleton(false);
       return;
@@ -957,8 +1000,15 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
     return () => window.cancelAnimationFrame(handle);
   }, [selectedId, isInitialListLoading, collapsedClasses, collapsedFactions, collapsedShips]);
 
+  function selectFitting(fittingId: number) {
+    setSelectedId(fittingId);
+    if (isCompactSidebar) {
+      setIsSidebarOpen(false);
+    }
+  }
+
   return (
-    <div className="flex min-h-screen w-full items-start gap-4 p-4">
+    <div className="relative flex h-full min-h-0 w-full items-start gap-4 p-4">
       {isInitialImporting ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
           <div className="flex items-center gap-3 rounded bg-zinc-900 px-4 py-3 text-zinc-100 shadow-xl">
@@ -968,7 +1018,45 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
         </div>
       ) : null}
 
-      <aside className="sticky top-4 flex h-[calc(100vh-2rem)] max-h-[calc(100vh-2rem)] w-[400px] shrink-0 flex-col gap-3 rounded bg-zinc-900 p-3">
+      {isCompactSidebar ? (
+        <>
+          <button
+            type="button"
+            className="fixed top-6 left-6 z-40 inline-flex h-10 items-center justify-center gap-2 rounded bg-zinc-950/90 px-3 text-xs font-medium text-zinc-100 ring-1 ring-zinc-700 transition-colors hover:bg-zinc-900"
+            onClick={() => setIsSidebarOpen((prev) => !prev)}
+            aria-expanded={isSidebarOpen}
+            aria-controls="fittings-sidebar"
+          >
+            {isSidebarOpen ? (
+              "Close sidebar"
+            ) : (
+              <>
+                <IoMenu className="h-4 w-4" aria-hidden="true" />
+                <span>Open Fittings Browser</span>
+              </>
+            )}
+          </button>
+          {isSidebarOpen ? (
+            <button
+              type="button"
+              aria-label="Close sidebar"
+              className="fixed inset-0 z-30 bg-zinc-950/65"
+              onClick={() => setIsSidebarOpen(false)}
+            />
+          ) : null}
+        </>
+      ) : null}
+
+      <aside
+        id="fittings-sidebar"
+        className={`flex flex-col gap-3 rounded bg-zinc-900 p-3 ${
+          isCompactSidebar
+            ? `fixed inset-y-4 left-4 z-40 h-auto max-h-[calc(100vh-2rem)] w-[min(400px,calc(100vw-2rem))] transition-transform duration-200 ease-out shadow-2xl ${
+                isSidebarOpen ? "translate-x-0" : "-translate-x-[112%] pointer-events-none"
+              }`
+            : "sticky top-4 h-[calc(100vh-2rem)] max-h-[calc(100vh-2rem)] w-[400px] shrink-0"
+        }`}
+      >
         <section className="relative rounded bg-zinc-950/60 p-3 shadow-sm">
           <button
             aria-label="Log out"
@@ -1100,7 +1188,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                                     className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm transition-colors ${
                                       selectedId === fit.fittingId ? "bg-zinc-700 text-white" : "text-zinc-300 hover:bg-zinc-800"
                                     }`}
-                                    onClick={() => setSelectedId(fit.fittingId)}
+                                    onClick={() => selectFitting(fit.fittingId)}
                                   >
                                     <span className="truncate">{fit.name}</span>
                                     <span
@@ -1142,9 +1230,9 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
               ))
             )}
           </div>
-          <div className="mt-3 flex items-center gap-2 border-t border-zinc-800 pt-2">
+          <div className="mt-3 flex items-center gap-2 pt-2">
             <button
-              type="button"
+              type="button" 
               onClick={() => setAllCollapsed(true)}
               disabled={isInitialListLoading}
               className="inline-flex cursor-pointer items-center rounded bg-zinc-900/80 px-2 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1201,7 +1289,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
         ) : (
           <>
             <section className="rounded bg-zinc-950/60 p-3 shadow-sm">
-              <div className="flex flex-wrap items-center gap-4">
+              <div className="flex flex-wrap items-center justify-center gap-4 max-[900px]:flex-col max-[900px]:items-center">
                 <div className="relative h-[352px] w-[352px] shrink-0 rounded-full bg-zinc-800/40">
                   {isWheelRefreshing ? <FittingWheelSkeleton /> : null}
                   <div className="absolute top-1/2 left-1/2 h-[258px] w-[258px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full bg-zinc-900/70">
@@ -1266,7 +1354,7 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
                     );
                   })}
                 </div>
-                <div className="min-w-0 flex-1 self-center space-y-3 pl-0 text-left md:pl-6">
+                <div className="min-w-0 flex-1 self-center space-y-3 pl-0 text-center md:pl-6">
                   <div className="min-w-0">
                     <p className="truncate text-2xl font-semibold text-zinc-100">{detail.fittingName}</p>
                     <p className="mt-1 truncate text-base text-zinc-300">{detail.shipTypeName}</p>

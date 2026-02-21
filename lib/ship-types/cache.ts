@@ -99,26 +99,35 @@ function withTtl(now: Date): string {
 }
 
 async function writeJsonAtomic(filePath: string, fileNamePrefix: string, payload: unknown): Promise<void> {
-  const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
-  const tempPath = path.join(dir, `${fileNamePrefix}.${Date.now()}.${randomUUID()}.tmp`);
-  const serialized = JSON.stringify(payload, null, 2);
-  await fs.writeFile(tempPath, serialized, "utf8");
   try {
-    await fs.rename(tempPath, filePath);
-    return;
+    const dir = path.dirname(filePath);
+    await fs.mkdir(dir, { recursive: true });
+    const tempPath = path.join(dir, `${fileNamePrefix}.${Date.now()}.${randomUUID()}.tmp`);
+    const serialized = JSON.stringify(payload, null, 2);
+    await fs.writeFile(tempPath, serialized, "utf8");
+    try {
+      await fs.rename(tempPath, filePath);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") {
+        throw error;
+      }
+      // OneDrive/AV can briefly lock files; fallback keeps cache warm.
+      await fs.writeFile(filePath, serialized, "utf8");
+      try {
+        await fs.unlink(tempPath);
+      } catch {
+        // Ignore temp cleanup failures.
+      }
+    }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") {
-      throw error;
+    if (code === "EROFS" || code === "ENOENT" || code === "EACCES" || code === "EPERM") {
+      // Cache writes are best-effort; read-only/serverless filesystems should not fail API requests.
+      return;
     }
-    // OneDrive/AV can briefly lock files; fallback keeps cache warm.
-    await fs.writeFile(filePath, serialized, "utf8");
-    try {
-      await fs.unlink(tempPath);
-    } catch {
-      // Ignore temp cleanup failures.
-    }
+    throw error;
   }
 }
 

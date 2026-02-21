@@ -25,7 +25,7 @@ type Env = {
   userAgent: string;
   sessionTtlHours: number;
   syncMinIntervalSeconds: number;
-  janiceApiKey: string;
+  janiceApiKey?: string;
 };
 
 function required(name: string): string {
@@ -115,7 +115,7 @@ export const env: Env = {
   userAgent: optional("ESI_USER_AGENT", "eve-fittings/1.0.0 (+https://localhost)"),
   sessionTtlHours: optionalNumber("SESSION_TTL_HOURS", 168),
   syncMinIntervalSeconds: optionalNumber("SYNC_MIN_INTERVAL_SECONDS", 300),
-  janiceApiKey: required("JANICE_API_KEY")
+  janiceApiKey: optional("JANICE_API_KEY", "") || undefined
 };
 
 logger.info("storage_config_loaded", {

@@ -189,7 +189,10 @@ function formatIskFull(value: number): string {
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Math.round(value))} ISK`;
 }
 
-function listAllFittings(groups: FitListResponse["groups"]) {
+function listAllFittings(groups: FitListResponse["groups"] | null | undefined) {
+  if (!Array.isArray(groups)) {
+    return [];
+  }
   return groups.flatMap((shipClassGroup) =>
     shipClassGroup.factions.flatMap((factionGroup) =>
       factionGroup.ships.flatMap((shipGroup) =>
@@ -200,6 +203,17 @@ function listAllFittings(groups: FitListResponse["groups"]) {
       )
     )
   );
+}
+
+function isFitListResponse(value: unknown): value is FitListResponse {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as { updatedAt?: unknown; groups?: unknown };
+  if (!(candidate.updatedAt === null || typeof candidate.updatedAt === "string")) {
+    return false;
+  }
+  return Array.isArray(candidate.groups);
 }
 
 function Spinner({ className = "h-4 w-4" }: { className?: string }) {
@@ -528,7 +542,22 @@ export function Dashboard({ characterId, csrfToken }: DashboardProps) {
       const response = await fetch(`/api/fits?q=${encodeURIComponent(nextQuery)}`, {
         cache: options?.bypassCache ? "no-store" : "default"
       });
-      const data = (await response.json()) as FitListResponse;
+      const payload = (await response.json().catch(() => ({}))) as { error?: string } | unknown;
+      if (!response.ok) {
+        const apiError = (payload as { error?: unknown })?.error;
+        const message = typeof apiError === "string" ? apiError : "Unable to load fittings.";
+        addToast(message, "error");
+        setList({ updatedAt: null, groups: [] });
+        setSelectedId(null);
+        return;
+      }
+      if (!isFitListResponse(payload)) {
+        addToast("Unable to load fittings.", "error");
+        setList({ updatedAt: null, groups: [] });
+        setSelectedId(null);
+        return;
+      }
+      const data = payload;
       setList(data);
       const allFittings = listAllFittings(data.groups);
       const availableIds = new Set(allFittings.map((fit) => fit.fittingId));

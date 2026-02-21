@@ -370,6 +370,10 @@ export async function getFittingPriceEstimate(
   characterId: number,
   fittingId: number
 ): Promise<{ totalIsk: number; appraisalUrl: string | null; lastModified: string }> {
+  if (!env.janiceApiKey) {
+    throw new Error("JANICE_API_KEY is not configured");
+  }
+
   const lastModified = await readFittingLastModified(characterId, fittingId);
   const eft = await getFittingEft(characterId, fittingId);
   const cacheKey = toJaniceCacheKey(eft);

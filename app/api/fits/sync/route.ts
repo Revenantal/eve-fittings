@@ -1,4 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/http/response";
+import { classifyRouteError } from "@/lib/http/error-classification";
 import { getRequestId } from "@/lib/http/request-id";
 import { syncCharacterFittings } from "@/lib/fits/service";
 import { withCharacterLock } from "@/lib/storage/lock";
@@ -32,7 +33,9 @@ export async function POST(request: Request): Promise<Response> {
     logger.info("fit_sync_completed", { requestId, characterId, count: summary.count, syncedAt: summary.syncedAt });
     return jsonOk(summary);
   } catch (error) {
-    logger.warn("fit_sync_failed", { requestId, message: (error as Error).message });
-    return jsonError(401, "Unauthorized", (error as Error).message);
+    const classified = classifyRouteError(error, { fallbackError: "Sync failed" });
+    const log = classified.status >= 500 ? logger.error : logger.warn;
+    log("fit_sync_failed", { requestId, status: classified.status, message: (error as Error).message });
+    return jsonError(classified.status, classified.error);
   }
 }

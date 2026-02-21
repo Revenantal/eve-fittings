@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createFitting, deleteFitting, getFittings } from "@/server/esi/client";
 import type { EsiFitting } from "@/server/esi/types";
+import { sanitizeBasicHtml } from "@/lib/html/sanitize";
 import {
   deleteStoredFitting,
   listStoredFittings,
@@ -161,10 +162,14 @@ export async function getFittingDetail(characterId: number, fittingId: number): 
   itemNamesByFlag: Record<string, string>;
 }> {
   const fitting = await readFitting(characterId, fittingId);
+  const fittingWithSafeDescription: EsiFitting = {
+    ...fitting,
+    description: sanitizeBasicHtml(fitting.description ?? "")
+  };
   const index = await tryReadIndex(characterId);
   const existsInLatest = Boolean(index?.fittings.some((item) => item.fittingId === fittingId));
-  const shipTypeName = await resolveShipTypeName(fitting.ship_type_id);
-  const typeIds = Array.from(new Set(fitting.items.map((item) => item.type_id)));
+  const shipTypeName = await resolveShipTypeName(fittingWithSafeDescription.ship_type_id);
+  const typeIds = Array.from(new Set(fittingWithSafeDescription.items.map((item) => item.type_id)));
   const resolvedNames = await Promise.all(
     typeIds.map(async (typeId) => ({
       typeId,
@@ -173,19 +178,19 @@ export async function getFittingDetail(characterId: number, fittingId: number): 
   );
   const itemTypeNames = Object.fromEntries(resolvedNames.map((entry) => [String(entry.typeId), entry.typeName]));
   const itemNamesByFlag: Record<string, string> = {};
-  for (const item of fitting.items) {
+  for (const item of fittingWithSafeDescription.items) {
     if (typeof item.flag !== "string") {
       continue;
     }
     itemNamesByFlag[item.flag] = itemTypeNames[String(item.type_id)] ?? String(item.type_id);
   }
   return {
-    fitting,
+    fitting: fittingWithSafeDescription,
     canRemoveFromEve: existsInLatest,
     canSyncToEve: !existsInLatest,
-    shipTypeId: fitting.ship_type_id,
+    shipTypeId: fittingWithSafeDescription.ship_type_id,
     shipTypeName,
-    fittingName: fitting.name,
+    fittingName: fittingWithSafeDescription.name,
     itemTypeNames,
     itemNamesByFlag
   };

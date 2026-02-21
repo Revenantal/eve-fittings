@@ -1,4 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/http/response";
+import { classifyRouteError } from "@/lib/http/error-classification";
 import { getRequestId } from "@/lib/http/request-id";
 import { syncCharacterFittings, syncStoredFittingToEve } from "@/lib/fits/service";
 import { withCharacterLock } from "@/lib/storage/lock";
@@ -43,7 +44,12 @@ export async function POST(
     logger.info("fit_sync_one_completed", { requestId, characterId, fittingId, stale: result.stale });
     return jsonOk(result);
   } catch (error) {
-    logger.error("fit_sync_one_failed", { requestId, fittingId, message: (error as Error).message });
-    return jsonError(500, "Sync failed", (error as Error).message);
+    const classified = classifyRouteError(error, {
+      fallbackError: "Sync failed",
+      notFoundError: "Fitting not found"
+    });
+    const log = classified.status >= 500 ? logger.error : logger.warn;
+    log("fit_sync_one_failed", { requestId, fittingId, status: classified.status, message: (error as Error).message });
+    return jsonError(classified.status, classified.error);
   }
 }

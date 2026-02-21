@@ -1,4 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/http/response";
+import { classifyRouteError } from "@/lib/http/error-classification";
 import { getRequestId } from "@/lib/http/request-id";
 import { loadPlayerProfile } from "@/lib/profile/service";
 import { requireAuthenticatedEsiContext } from "@/server/auth/esi-context";
@@ -14,7 +15,9 @@ export async function GET(request: Request): Promise<Response> {
     logger.info("profile_loaded", { requestId, characterId });
     return jsonOk(profile);
   } catch (error) {
-    logger.warn("profile_load_failed", { requestId, message: (error as Error).message });
-    return jsonError(401, "Unauthorized", (error as Error).message);
+    const classified = classifyRouteError(error, { fallbackError: "Unable to load profile" });
+    const log = classified.status >= 500 ? logger.error : logger.warn;
+    log("profile_load_failed", { requestId, status: classified.status, message: (error as Error).message });
+    return jsonError(classified.status, classified.error);
   }
 }

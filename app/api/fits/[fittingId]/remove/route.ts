@@ -1,4 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/http/response";
+import { classifyRouteError } from "@/lib/http/error-classification";
 import { getRequestId } from "@/lib/http/request-id";
 import { removeFittingFromEve, syncCharacterFittings } from "@/lib/fits/service";
 import { withCharacterLock } from "@/lib/storage/lock";
@@ -53,7 +54,12 @@ export async function POST(
     logger.info("fit_remove_completed", { requestId, characterId, fittingId, stale: result.stale });
     return jsonOk(result);
   } catch (error) {
-    logger.error("fit_remove_failed", { requestId, fittingId, message: (error as Error).message });
-    return jsonError(500, "Remove failed", (error as Error).message);
+    const classified = classifyRouteError(error, {
+      fallbackError: "Remove failed",
+      notFoundError: "Fitting not found"
+    });
+    const log = classified.status >= 500 ? logger.error : logger.warn;
+    log("fit_remove_failed", { requestId, fittingId, status: classified.status, message: (error as Error).message });
+    return jsonError(classified.status, classified.error);
   }
 }
